@@ -1,0 +1,7 @@
+{
+  "_note": "Remote control for the MT5 VPS bot. The VPS polls this file every 5 min and applies it to the blacklist the live traders honor. Edit disabled_edges to pull an edge off live (re-add removes it). pause_all=true halts ALL trading. Config only - never code.",
+  "pause_all": false,
+  "disabled_edges": [
+    { "symbol": "GOLD", "magic": 88009, "reason": "GOLD_TUE fails honest Bonferroni (t=3.31, p->1.0); demoted 2026-06-24" }
+  ]
+}
