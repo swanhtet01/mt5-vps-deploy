@@ -1,4 +1,4 @@
-# mt5.ps1 — finds MetaTrader 5 wherever it installed and launches it.
+# mt5.ps1  finds MetaTrader 5 wherever it installed and launches it.
 $ErrorActionPreference = 'SilentlyContinue'
 Write-Host 'Looking for MetaTrader 5...' -ForegroundColor Cyan
 $paths = @(

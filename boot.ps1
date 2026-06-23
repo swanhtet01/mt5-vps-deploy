@@ -1,4 +1,4 @@
-# boot.ps1 — one-line VPS bootstrap. Run in an ADMIN PowerShell on the VPS:
+# boot.ps1  one-line VPS bootstrap. Run in an ADMIN PowerShell on the VPS:
 #   irm is.gd/<short> | iex
 # Downloads the deploy bundle, extracts it, and runs the full one-shot installer.
 
