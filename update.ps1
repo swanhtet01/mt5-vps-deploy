@@ -81,18 +81,28 @@ $scanBody = "@echo off`r`n`"$py`" `"$repo\scripts\multi_symbol_scanner.py`" --sy
 schtasks /create /tn 'MT5-SymbolScanner' /tr $scanCmd /sc weekly /d SUN /st 08:00 /it /f | Out-Null
 Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundColor Green
 
-# 7) LLM thesis self-test — verify the Claude API key + model actually work end-to-end.
-#    Non-fatal: a failure here never breaks the deploy, it just reports red.
+# 7) LLM thesis self-test — verify the Claude API key + model work end-to-end.
+#    thesis_ingest.py logs to STDERR; capturing that via "2>&1 |" while
+#    $ErrorActionPreference='Stop' makes PowerShell treat normal log lines as a
+#    fatal NativeCommandError and abort. So: temporarily relax EAP and redirect
+#    ALL streams to a file. Success is judged by a freshly-written
+#    claude_thesis.json (only written when Claude actually responds), not log text.
 Write-Host '  [7] testing LLM thesis (calls Claude)...' -ForegroundColor Yellow
-$thesisOut = & $py "$repo\scripts\thesis_ingest.py" 2>&1 | Out-String
-if ($thesisOut -match '"status"\s*:\s*"error"' -or $thesisOut -match 'Traceback') {
-    Write-Host '  [7] THESIS TEST FAILED:' -ForegroundColor Red
-    Write-Host ($thesisOut.Trim()) -ForegroundColor DarkYellow
-    if (-not [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','Machine')) {
-        Write-Host '       -> ANTHROPIC_API_KEY is not set (Machine scope). Set it and re-run.' -ForegroundColor Red
-    }
+$thesisLog = "$deploy\thesis-test.log"
+$prevEAP = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& $py "$repo\scripts\thesis_ingest.py" *> $thesisLog
+$ErrorActionPreference = $prevEAP
+$thesisJson = "$repo\data_cache\claude_thesis.json"
+$ok = (Test-Path $thesisJson) -and (((Get-Date) - (Get-Item $thesisJson).LastWriteTime).TotalMinutes -lt 3)
+if ($ok) {
+    Write-Host '  [7] LLM thesis OK - Claude responded, thesis written + pushed to phone' -ForegroundColor Green
 } else {
-    Write-Host '  [7] LLM thesis OK — Claude responded, thesis written + pushed to phone' -ForegroundColor Green
+    Write-Host '  [7] THESIS TEST FAILED - last lines of log:' -ForegroundColor Red
+    if (Test-Path $thesisLog) { Get-Content $thesisLog -Tail 6 | ForEach-Object { Write-Host "       $_" -ForegroundColor DarkYellow } }
+    if (-not [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','Machine')) {
+        Write-Host '       -> ANTHROPIC_API_KEY not set (Machine scope).' -ForegroundColor Red
+    }
 }
 
 # 8) confirm to phone
