@@ -39,6 +39,28 @@ if (Test-Path $thesisFile) {
     (Get-Content $thesisFile -Raw) -replace 'claude-3-5-sonnet-20241022', 'claude-opus-4-8' |
         Set-Content $thesisFile -NoNewline
 }
+# Robust API-key bootstrap: Task Scheduler can launch with a stale environment that
+# doesn't include a recently-set Machine env var, so the anthropic SDK can't find the
+# key. Inject a registry read so the thesis generator self-loads ANTHROPIC_API_KEY
+# from HKLM regardless of how the process was started. Idempotent (marker-guarded).
+$gen = "$repo\src\mt5_agent\claude_thesis_generator.py"
+if ((Test-Path $gen) -and -not (Select-String -Path $gen -Pattern '_load_api_key_from_registry' -Quiet)) {
+    $boot = @'
+    # Self-load the key from the Windows Machine registry if the process env lacks it
+    # (Task Scheduler may not inherit a recently-set Machine env var). _load_api_key_from_registry
+    import os as _os
+    if not _os.environ.get("ANTHROPIC_API_KEY"):
+        try:
+            import winreg as _wr
+            with _wr.OpenKey(_wr.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as _k:
+                _os.environ["ANTHROPIC_API_KEY"] = _wr.QueryValueEx(_k, "ANTHROPIC_API_KEY")[0]
+        except Exception:
+            pass
+    client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
+'@
+    (Get-Content $gen -Raw) -replace '    client = anthropic\.Anthropic\(\)  # Uses ANTHROPIC_API_KEY env var', $boot |
+        Set-Content $gen -NoNewline
+}
 Write-Host '  [2] scripts + engine refreshed' -ForegroundColor Green
 
 # 2b) ensure required Python deps exist in the venv (anthropic for thesis, yfinance for scanner).
@@ -88,6 +110,8 @@ Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundCo
 #    ALL streams to a file. Success is judged by a freshly-written
 #    claude_thesis.json (only written when Claude actually responds), not log text.
 Write-Host '  [7] testing LLM thesis (calls Claude)...' -ForegroundColor Yellow
+# Load the key into THIS process env (setx/Machine scope doesn't reach an already-open shell)
+$env:ANTHROPIC_API_KEY = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','Machine')
 $thesisLog = "$deploy\thesis-test.log"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
