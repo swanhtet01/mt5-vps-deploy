@@ -30,6 +30,13 @@ try {
     Write-Host '  [2] remote_control.py installed' -ForegroundColor Green
 } catch { Write-Warning "  [2] download failed: $_"; return }
 
+# 2b) Upgrade the phone-summary to plain English
+try {
+    Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/notify.py' `
+        -OutFile "$repo\scripts\notify.py" -UseBasicParsing -TimeoutSec 60
+    Write-Host '  [2b] notify.py upgraded (plain-English phone summaries)' -ForegroundColor Green
+} catch { Write-Warning "  [2b] notify.py update skipped: $_" }
+
 # 3) Apply it once now (so GOLD_TUE is blacklisted immediately), then schedule every 5 min
 try {
     $cmd = 'C:\mt5-paper\remote-control-tick.cmd'
