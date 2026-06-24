@@ -61,6 +61,26 @@ if ((Test-Path $gen) -and -not (Select-String -Path $gen -Pattern '_load_api_key
     (Get-Content $gen -Raw) -replace '    client = anthropic\.Anthropic\(\)  # Uses ANTHROPIC_API_KEY env var', $boot |
         Set-Content $gen -NoNewline
 }
+# The thesis notifier ships as a stub that only logs "(simulated)" and never pushes.
+# Replace it with a real ntfy push (same channel as trade alerts) so the daily thesis
+# actually reaches the phone. Idempotent (guarded on 'send_ntfy').
+$ti = "$repo\scripts\thesis_ingest.py"
+if ((Test-Path $ti) -and -not (Select-String -Path $ti -Pattern 'send_ntfy' -Quiet)) {
+    $realPush = @'
+def send_notification(thesis_text: str, multiplier: float, confidence: float) -> None:
+    try:
+        import notify as _n
+        _n.send_ntfy(
+            f"{thesis_text[:280]}\n\nSize: {multiplier:.2f}x | Confidence: {confidence:.0%}",
+            title=f"Today's thesis: {multiplier:.2f}x size", tags="brain")
+    except Exception as _e:
+        logging.warning(f"thesis ntfy push failed: {_e}")
+    logging.info(f"Thesis pushed to phone. Size: {multiplier:.2f}x, Confidence: {confidence:.0%}")
+    return
+'@
+    (Get-Content $ti -Raw) -replace 'def send_notification\(thesis_text: str, multiplier: float, confidence: float\) -> None:', $realPush |
+        Set-Content $ti -NoNewline
+}
 Write-Host '  [2] scripts + engine refreshed' -ForegroundColor Green
 
 # 2b) ensure required Python deps exist in the venv (anthropic for thesis, yfinance for scanner).
@@ -110,8 +130,9 @@ Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundCo
 #    ALL streams to a file. Success is judged by a freshly-written
 #    claude_thesis.json (only written when Claude actually responds), not log text.
 Write-Host '  [7] testing LLM thesis (calls Claude)...' -ForegroundColor Yellow
-# Load the key into THIS process env (setx/Machine scope doesn't reach an already-open shell)
+# Load key + ntfy topic into THIS process env (setx/scope doesn't reach an already-open shell)
 $env:ANTHROPIC_API_KEY = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','Machine')
+$env:NTFY_TOPIC = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
 $thesisLog = "$deploy\thesis-test.log"
 $prevEAP = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
