@@ -81,15 +81,30 @@ $scanBody = "@echo off`r`n`"$py`" `"$repo\scripts\multi_symbol_scanner.py`" --sy
 schtasks /create /tn 'MT5-SymbolScanner' /tr $scanCmd /sc weekly /d SUN /st 08:00 /it /f | Out-Null
 Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundColor Green
 
-# 7) confirm to phone
+# 7) LLM thesis self-test — verify the Claude API key + model actually work end-to-end.
+#    Non-fatal: a failure here never breaks the deploy, it just reports red.
+Write-Host '  [7] testing LLM thesis (calls Claude)...' -ForegroundColor Yellow
+$thesisOut = & $py "$repo\scripts\thesis_ingest.py" 2>&1 | Out-String
+if ($thesisOut -match '"status"\s*:\s*"error"' -or $thesisOut -match 'Traceback') {
+    Write-Host '  [7] THESIS TEST FAILED:' -ForegroundColor Red
+    Write-Host ($thesisOut.Trim()) -ForegroundColor DarkYellow
+    if (-not [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','Machine')) {
+        Write-Host '       -> ANTHROPIC_API_KEY is not set (Machine scope). Set it and re-run.' -ForegroundColor Red
+    }
+} else {
+    Write-Host '  [7] LLM thesis OK — Claude responded, thesis written + pushed to phone' -ForegroundColor Green
+}
+
+# 8) confirm to phone
 $topic = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
 if ($topic) {
     $env:NTFY_TOPIC = $topic
-    & $py "$repo\scripts\notify.py" 'Update done - auto-deploy + scanner now active' 2>$null
+    & $py "$repo\scripts\notify.py" 'Update done - auto-deploy + scanner + LLM thesis verified' 2>$null
 }
 
 Write-Host ''
 Write-Host '==== UPDATE COMPLETE ====' -ForegroundColor Green
 Write-Host '  - Auto-deploy: VPS now self-updates when you push a new GitHub release'
 Write-Host '  - Symbol scanner: runs every Sunday 08:00 UTC (finds new edges automatically)'
+Write-Host '  - LLM thesis: tested live against Claude (see [7] above)'
 Write-Host '  - Trade alerts: fire on real opens/closes only (no spam)'
