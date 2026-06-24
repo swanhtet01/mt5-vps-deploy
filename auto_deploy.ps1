@@ -1,9 +1,12 @@
-# auto_deploy.ps1 - Polls GitHub releases; re-deploys when a new bundle is published.
-# Runs every 15 min as MT5-AutoDeploy scheduled task. Silent when nothing changed.
-# To trigger a deploy: push a new GitHub Release (v2, v3, ...) on swanhtet01/mt5-vps-deploy.
+# auto_deploy.ps1 - Polls GitHub main for new commits; re-runs update.ps1 when the deploy
+# scripts change. Runs every 15 min as MT5-AutoDeploy. Silent when nothing changed.
+#
+# Watches the main branch HEAD commit SHA (not release tags) so ordinary commits to
+# update.ps1 deploy automatically - no need to cut a GitHub release. Sets MT5_AUTODEPLOY=1
+# so update.ps1 skips its interactive thesis self-test (no phone push on every deploy).
 
 $ErrorActionPreference = 'SilentlyContinue'
-$tag_file = 'C:\mt5-deploy\last_release_tag.txt'
+$sha_file = 'C:\mt5-deploy\last_deploy_sha.txt'
 $log      = 'C:\mt5-paper\analytics\auto-deploy.log'
 $gh_repo  = 'swanhtet01/mt5-vps-deploy'
 
@@ -13,32 +16,26 @@ function Log($msg) {
 }
 
 try {
-    $rel = Invoke-WebRequest "https://api.github.com/repos/$gh_repo/releases/latest" `
+    $resp = Invoke-WebRequest "https://api.github.com/repos/$gh_repo/commits/main" `
         -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
-    $tag = ($rel.Content | ConvertFrom-Json).tag_name
+    $sha = ($resp.Content | ConvertFrom-Json).sha
 } catch {
     Log "GitHub check failed: $_"
     exit 0
 }
 
-if (-not $tag) { Log 'No release tag found'; exit 0 }
+if (-not $sha) { exit 0 }
+$last = if (Test-Path $sha_file) { (Get-Content $sha_file -Raw).Trim() } else { '' }
+if ($sha -eq $last) { exit 0 }   # nothing new - silent, no log spam
 
-$last = if (Test-Path $tag_file) { (Get-Content $tag_file -Raw).Trim() } else { '' }
-
-if ($tag -eq $last) {
-    # Nothing new — silent exit (no log spam)
-    exit 0
-}
-
-Log "New release detected: $tag (was: '$last') — starting deploy..."
-
+Log "New main commit $($sha.Substring(0,8)) (was '$last') - deploying..."
 try {
-    # Re-run the standard update script (downloads bundle, refreshes code, re-seeds tasks)
-    $update = Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/update.ps1' `
+    $env:MT5_AUTODEPLOY = '1'   # update.ps1 sees this and skips the thesis self-test (no phone spam)
+    $update = Invoke-WebRequest "https://raw.githubusercontent.com/$gh_repo/main/update.ps1" `
         -UseBasicParsing -TimeoutSec 30
     Invoke-Expression $update.Content
-    Set-Content $tag_file $tag -NoNewline
-    Log "Deploy complete — now on $tag"
+    Set-Content $sha_file $sha -NoNewline   # only advance the marker on a clean run
+    Log "Deploy complete - now at $($sha.Substring(0,8))"
 } catch {
-    Log "Deploy FAILED: $_"
+    Log "Deploy FAILED (will retry next poll): $_"
 }

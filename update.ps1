@@ -15,7 +15,7 @@ $deploy = 'C:\mt5-deploy'
 $repo   = 'C:\trading-agent'
 $py     = 'C:\mt5-venv\Scripts\python.exe'
 
-# 1) latest bundle — resolve the newest GitHub release asset (not a hardcoded tag),
+# 1) latest bundle - resolve the newest GitHub release asset (not a hardcoded tag),
 #    so a freshly published release actually deploys. Falls back to v1 if the API is unreachable.
 New-Item -ItemType Directory -Path $deploy -Force | Out-Null
 $bundleUrl = 'https://github.com/swanhtet01/mt5-vps-deploy/releases/download/v1/mt5-bundle.zip'
@@ -101,7 +101,7 @@ Write-Host '  [3] MT5-PositionMonitor scheduled (alerts every 5 min)' -Foregroun
 & $py "$repo\scripts\remote_control.py" 2>&1 | Out-Null
 Write-Host '  [4] alerts seeded + remote control applied' -ForegroundColor Green
 
-# 5) auto-deploy task — VPS polls GitHub releases every 15 min and self-updates
+# 5) auto-deploy task - VPS polls GitHub releases every 15 min and self-updates
 $adScript = "$deploy\auto_deploy.ps1"
 Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/auto_deploy.ps1' `
     -OutFile $adScript -UseBasicParsing -TimeoutSec 30
@@ -109,18 +109,20 @@ $adCmd = "C:\mt5-paper\auto-deploy.cmd"
 $adBody = "@echo off`r`npowershell -ExecutionPolicy Bypass -File `"$adScript`" >> `"C:\mt5-paper\analytics\auto-deploy.log`" 2>&1"
 [System.IO.File]::WriteAllText($adCmd, $adBody, (New-Object System.Text.ASCIIEncoding))
 schtasks /create /tn 'MT5-AutoDeploy' /tr $adCmd /sc minute /mo 15 /it /f | Out-Null
-# Seed the current release tag so the first poll doesn't re-deploy immediately
-$rel = Invoke-WebRequest 'https://api.github.com/repos/swanhtet01/mt5-vps-deploy/releases/latest' `
-    -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
-$curTag = ($rel.Content | ConvertFrom-Json).tag_name
-if ($curTag) { Set-Content "$deploy\last_release_tag.txt" $curTag -NoNewline }
-Write-Host '  [5] MT5-AutoDeploy scheduled (checks GitHub every 15 min)' -ForegroundColor Green
+# Seed the current main commit SHA so the first auto-deploy poll doesn't immediately re-run.
+try {
+    $c = Invoke-WebRequest 'https://api.github.com/repos/swanhtet01/mt5-vps-deploy/commits/main' `
+        -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
+    $curSha = ($c.Content | ConvertFrom-Json).sha
+    if ($curSha) { Set-Content "$deploy\last_deploy_sha.txt" $curSha -NoNewline }
+} catch { Write-Host '  (could not seed deploy SHA; auto-deploy will deploy once on next poll)' -ForegroundColor DarkGray }
+Write-Host '  [5] MT5-AutoDeploy scheduled (watches main commits every 15 min)' -ForegroundColor Green
 
-# NOTE: this VPS runs on Myanmar time (UTC+6:30) — confirmed by the live-enter task firing
+# NOTE: this VPS runs on Myanmar time (UTC+6:30) - confirmed by the live-enter task firing
 # at 06:30 local = 00:00 UTC. schtasks /st uses LOCAL time, so add 6:30 to the desired UTC.
 #   06:00 UTC -> 12:30 local ; 06:30 UTC -> 13:00 local ; 08:00 UTC -> 14:30 local
 
-# 6) symbol scanner task — Sundays 08:00 UTC (= 14:30 local) to discover new edges
+# 6) symbol scanner task - Sundays 08:00 UTC (= 14:30 local) to discover new edges
 $scanCmd = "C:\mt5-paper\symbol-scanner.cmd"
 $scanBody = "@echo off`r`n`"$py`" `"$repo\scripts\multi_symbol_scanner.py`" --symbols SPY,TLT,QQQ,CL,GC --timeframes 1h,4h --parallel 5 >> `"C:\mt5-paper\analytics\scanner.log`" 2>&1"
 [System.IO.File]::WriteAllText($scanCmd, $scanBody, (New-Object System.Text.ASCIIEncoding))
@@ -139,12 +141,17 @@ $apBody = "@echo off`r`n`"$py`" `"$repo\scripts\apply_approved_thesis.py`" >> `"
 schtasks /create /tn 'MT5-ApplyThesis' /tr $apCmd /sc daily /st 13:00 /it /f | Out-Null
 Write-Host '  [6b] MT5-LLMThesis (06:00 UTC) + MT5-ApplyThesis (06:30 UTC) scheduled' -ForegroundColor Green
 
-# 7) LLM thesis self-test — verify the Claude API key + model work end-to-end.
+# 7) LLM thesis self-test - verify the Claude API key + model work end-to-end.
+#    Skipped on auto-deploy runs (MT5_AUTODEPLOY=1) so a code deploy never pushes a
+#    thesis to the phone - the scheduled MT5-LLMThesis task owns the daily push.
 #    thesis_ingest.py logs to STDERR; capturing that via "2>&1 |" while
 #    $ErrorActionPreference='Stop' makes PowerShell treat normal log lines as a
 #    fatal NativeCommandError and abort. So: temporarily relax EAP and redirect
 #    ALL streams to a file. Success is judged by a freshly-written
 #    claude_thesis.json (only written when Claude actually responds), not log text.
+if ($env:MT5_AUTODEPLOY) {
+    Write-Host '  [7] thesis self-test skipped (auto-deploy run - no phone push)' -ForegroundColor DarkGray
+} else {
 Write-Host '  [7] testing LLM thesis (calls Claude)...' -ForegroundColor Yellow
 # Load key + ntfy topic into THIS process env (setx/scope doesn't reach an already-open shell)
 $env:ANTHROPIC_API_KEY = [Environment]::GetEnvironmentVariable('ANTHROPIC_API_KEY','Machine')
@@ -165,12 +172,15 @@ if ($ok) {
         Write-Host '       -> ANTHROPIC_API_KEY not set (Machine scope).' -ForegroundColor Red
     }
 }
+}
 
-# 8) confirm to phone
-$topic = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
-if ($topic) {
-    $env:NTFY_TOPIC = $topic
-    & $py "$repo\scripts\notify.py" 'Update done - auto-deploy + scanner + LLM thesis verified' 2>$null
+# 8) confirm to phone - only on interactive runs (auto-deploy stays silent; no spam)
+if (-not $env:MT5_AUTODEPLOY) {
+    $topic = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
+    if ($topic) {
+        $env:NTFY_TOPIC = $topic
+        & $py "$repo\scripts\notify.py" 'Update done - auto-deploy + scanner + LLM thesis verified' 2>$null
+    }
 }
 
 Write-Host ''
