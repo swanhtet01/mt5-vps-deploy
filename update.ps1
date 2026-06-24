@@ -29,64 +29,25 @@ Invoke-WebRequest $bundleUrl -OutFile "$deploy\mt5-bundle.zip" -UseBasicParsing 
 Expand-Archive "$deploy\mt5-bundle.zip" -DestinationPath $deploy -Force
 Write-Host '  [1] latest code downloaded' -ForegroundColor Green
 
-# 2) refresh code only (scripts + engine src). Does NOT re-import scheduled tasks.
+# 2) refresh code (scripts + engine src). The bundle now carries ALL fixes at source
+#    (model id, registry key fallback, real ntfy push, gold lot clamp, thesis fail-safes),
+#    so there are no fragile in-place patches anymore. Fail LOUD on a bad copy: robocopy
+#    exit codes 0-7 are success, >=8 is a real failure.
 robocopy "$deploy\trading-agent\scripts" "$repo\scripts" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy scripts' -ForegroundColor Red; throw 'robocopy scripts failed' }
 robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
-# Safety patch: the bundled thesis generator may still reference a retired Claude model.
-# Rewrite it to the current model so the LLM thesis never 404s, even from a stale bundle.
-$thesisFile = "$repo\src\mt5_agent\claude_thesis_generator.py"
-if (Test-Path $thesisFile) {
-    (Get-Content $thesisFile -Raw) -replace 'claude-3-5-sonnet-20241022', 'claude-opus-4-8' |
-        Set-Content $thesisFile -NoNewline
-}
-# Robust API-key bootstrap: Task Scheduler can launch with a stale environment that
-# doesn't include a recently-set Machine env var, so the anthropic SDK can't find the
-# key. Inject a registry read so the thesis generator self-loads ANTHROPIC_API_KEY
-# from HKLM regardless of how the process was started. Idempotent (marker-guarded).
-$gen = "$repo\src\mt5_agent\claude_thesis_generator.py"
-if ((Test-Path $gen) -and -not (Select-String -Path $gen -Pattern '_load_api_key_from_registry' -Quiet)) {
-    $boot = @'
-    # Self-load the key from the Windows Machine registry if the process env lacks it
-    # (Task Scheduler may not inherit a recently-set Machine env var). _load_api_key_from_registry
-    import os as _os
-    if not _os.environ.get("ANTHROPIC_API_KEY"):
-        try:
-            import winreg as _wr
-            with _wr.OpenKey(_wr.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Session Manager\Environment") as _k:
-                _os.environ["ANTHROPIC_API_KEY"] = _wr.QueryValueEx(_k, "ANTHROPIC_API_KEY")[0]
-        except Exception:
-            pass
-    client = anthropic.Anthropic()  # Uses ANTHROPIC_API_KEY env var
-'@
-    (Get-Content $gen -Raw) -replace '    client = anthropic\.Anthropic\(\)  # Uses ANTHROPIC_API_KEY env var', $boot |
-        Set-Content $gen -NoNewline
-}
-# The thesis notifier ships as a stub that only logs "(simulated)" and never pushes.
-# Replace it with a real ntfy push (same channel as trade alerts) so the daily thesis
-# actually reaches the phone. Idempotent (guarded on 'send_ntfy').
-$ti = "$repo\scripts\thesis_ingest.py"
-if ((Test-Path $ti) -and -not (Select-String -Path $ti -Pattern 'send_ntfy' -Quiet)) {
-    $realPush = @'
-def send_notification(thesis_text: str, multiplier: float, confidence: float) -> None:
-    try:
-        import notify as _n
-        _n.send_ntfy(
-            f"{thesis_text[:280]}\n\nSize: {multiplier:.2f}x | Confidence: {confidence:.0%}",
-            title=f"Today's thesis: {multiplier:.2f}x size", tags="brain")
-    except Exception as _e:
-        logging.warning(f"thesis ntfy push failed: {_e}")
-    logging.info(f"Thesis pushed to phone. Size: {multiplier:.2f}x, Confidence: {confidence:.0%}")
-    return
-'@
-    (Get-Content $ti -Raw) -replace 'def send_notification\(thesis_text: str, multiplier: float, confidence: float\) -> None:', $realPush |
-        Set-Content $ti -NoNewline
-}
-Write-Host '  [2] scripts + engine refreshed' -ForegroundColor Green
+if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy src' -ForegroundColor Red; throw 'robocopy src failed' }
+Write-Host '  [2] scripts + engine refreshed (no patches; bundle is the source of truth)' -ForegroundColor Green
 
-# 2b) ensure required Python deps exist in the venv (anthropic for thesis, yfinance for scanner).
-#     pip is a no-op if already satisfied, so this is safe to run every time.
-& $py -m pip install --quiet anthropic yfinance 2>&1 | Out-Null
-Write-Host '  [2b] python deps verified (anthropic + yfinance)' -ForegroundColor Green
+# 2b) ensure runtime deps in the venv. pip is a no-op if already satisfied. Fail loud.
+& $py -m pip install --quiet anthropic yfinance numpy psutil
+if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: pip install' -ForegroundColor Red; throw 'pip install failed' }
+Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, psutil)' -ForegroundColor Green
+
+# 2c) mirror NTFY_TOPIC to Machine scope so SYSTEM-context tasks (e.g. a boot alert) can
+#     also push to the phone, and so notify.py's registry fallback always finds it.
+$ntfyUser = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
+if ($ntfyUser) { [Environment]::SetEnvironmentVariable('NTFY_TOPIC', $ntfyUser, 'Machine') }
 
 # 3) position-monitor task -> phone alert on every trade open/close (every 5 min)
 $cmd = 'C:\mt5-paper\position-monitor-tick.cmd'
@@ -129,17 +90,50 @@ $scanBody = "@echo off`r`n`"$py`" `"$repo\scripts\multi_symbol_scanner.py`" --sy
 schtasks /create /tn 'MT5-SymbolScanner' /tr $scanCmd /sc weekly /d SUN /st 14:30 /it /f | Out-Null
 Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundColor Green
 
-# 6b) THE MISSING PIECES: schedule the daily LLM thesis + auto-apply. Without these the
-# thesis never fires on its own. 06:00 UTC generate (12:30 local), 06:30 UTC apply (13:00 local).
+# 6b) THE DAILY THESIS PIPELINE, correctly ordered. It must run BEFORE the day's first
+# gold entry (00:00 UTC = 06:30 local) so sizing is fresh, not ~18h stale, and so the
+# thesis reads REAL data (context_ingest writes news/macro/context first) instead of
+# empty defaults. Sequence (local time = UTC+6:30):
+#   04:30 local (22:00 UTC) context_ingest -> 05:00 (22:30) thesis -> 05:30 (23:00) apply
+$ciCmd = 'C:\mt5-paper\context-ingest.cmd'
+$ciBody = "@echo off`r`n`"$py`" `"$repo\scripts\context_ingest.py`" --data-cache-dir `"$repo\data_cache`" >> `"C:\mt5-paper\analytics\context.log`" 2>&1"
+[System.IO.File]::WriteAllText($ciCmd, $ciBody, (New-Object System.Text.ASCIIEncoding))
+schtasks /create /tn 'MT5-ContextIngest' /tr $ciCmd /sc daily /st 04:30 /it /f | Out-Null
+if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: MT5-ContextIngest' -ForegroundColor Red; throw 'schtasks ContextIngest' }
 $thCmd = 'C:\mt5-paper\llm-thesis.cmd'
 $thBody = "@echo off`r`n`"$py`" `"$repo\scripts\thesis_ingest.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
 [System.IO.File]::WriteAllText($thCmd, $thBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-LLMThesis' /tr $thCmd /sc daily /st 12:30 /it /f | Out-Null
+schtasks /create /tn 'MT5-LLMThesis' /tr $thCmd /sc daily /st 05:00 /it /f | Out-Null
+if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: MT5-LLMThesis' -ForegroundColor Red; throw 'schtasks LLMThesis' }
 $apCmd = 'C:\mt5-paper\apply-thesis.cmd'
 $apBody = "@echo off`r`n`"$py`" `"$repo\scripts\apply_approved_thesis.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
 [System.IO.File]::WriteAllText($apCmd, $apBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-ApplyThesis' /tr $apCmd /sc daily /st 13:00 /it /f | Out-Null
-Write-Host '  [6b] MT5-LLMThesis (06:00 UTC) + MT5-ApplyThesis (06:30 UTC) scheduled' -ForegroundColor Green
+schtasks /create /tn 'MT5-ApplyThesis' /tr $apCmd /sc daily /st 05:30 /it /f | Out-Null
+if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: MT5-ApplyThesis' -ForegroundColor Red; throw 'schtasks ApplyThesis' }
+# Defensive: ensure the kill-switch (cumulative-drawdown brake) is ENABLED, not just present.
+schtasks /change /tn 'MT5-GoldDrift-KillSwitch' /enable 2>$null | Out-Null
+Write-Host '  [6b] context-ingest + thesis + apply scheduled (22:00/22:30/23:00 UTC, pre-entry); kill-switch enabled' -ForegroundColor Green
+
+# 6c) Reboot-survival backstop: a SYSTEM task that pings the phone on boot so a restart
+# (Windows Update, host maintenance) is VISIBLE. With auto-logon set up (recommended),
+# trading resumes by itself; without it this is your only signal that a reboot happened.
+# Runs as SYSTEM (no logon needed) and reads NTFY_TOPIC from Machine scope (mirrored in 2c).
+$bootPs = 'C:\mt5-paper\boot-alert.ps1'
+$bootPsBody = @'
+Start-Sleep -Seconds 90
+$t = [Environment]::GetEnvironmentVariable("NTFY_TOPIC","Machine")
+if ($t) {
+    try {
+        Invoke-WebRequest "https://ntfy.sh/$t" -Method POST -UseBasicParsing -TimeoutSec 12 -Body "VPS rebooted. If auto-logon is not set, log in via VNC so MT5 and trading resume." -Headers @{ Title = "MT5 VPS rebooted"; Tags = "warning" } | Out-Null
+    } catch {}
+}
+'@
+[System.IO.File]::WriteAllText($bootPs, $bootPsBody, (New-Object System.Text.ASCIIEncoding))
+$bootCmd = 'C:\mt5-paper\boot-alert.cmd'
+$bootCmdBody = "@echo off`r`npowershell -ExecutionPolicy Bypass -File `"$bootPs`""
+[System.IO.File]::WriteAllText($bootCmd, $bootCmdBody, (New-Object System.Text.ASCIIEncoding))
+schtasks /create /tn 'MT5-BootAlert' /tr $bootCmd /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
+Write-Host '  [6c] MT5-BootAlert scheduled (phone ping on reboot)' -ForegroundColor Green
 
 # 7) LLM thesis self-test - verify the Claude API key + model work end-to-end.
 #    Skipped on auto-deploy runs (MT5_AUTODEPLOY=1) so a code deploy never pushes a
