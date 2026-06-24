@@ -116,12 +116,28 @@ $curTag = ($rel.Content | ConvertFrom-Json).tag_name
 if ($curTag) { Set-Content "$deploy\last_release_tag.txt" $curTag -NoNewline }
 Write-Host '  [5] MT5-AutoDeploy scheduled (checks GitHub every 15 min)' -ForegroundColor Green
 
-# 6) symbol scanner task — runs every Sunday 08:00 UTC to discover new edges
+# NOTE: this VPS runs on Myanmar time (UTC+6:30) — confirmed by the live-enter task firing
+# at 06:30 local = 00:00 UTC. schtasks /st uses LOCAL time, so add 6:30 to the desired UTC.
+#   06:00 UTC -> 12:30 local ; 06:30 UTC -> 13:00 local ; 08:00 UTC -> 14:30 local
+
+# 6) symbol scanner task — Sundays 08:00 UTC (= 14:30 local) to discover new edges
 $scanCmd = "C:\mt5-paper\symbol-scanner.cmd"
 $scanBody = "@echo off`r`n`"$py`" `"$repo\scripts\multi_symbol_scanner.py`" --symbols SPY,TLT,QQQ,CL,GC --timeframes 1h,4h --parallel 5 >> `"C:\mt5-paper\analytics\scanner.log`" 2>&1"
 [System.IO.File]::WriteAllText($scanCmd, $scanBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-SymbolScanner' /tr $scanCmd /sc weekly /d SUN /st 08:00 /it /f | Out-Null
+schtasks /create /tn 'MT5-SymbolScanner' /tr $scanCmd /sc weekly /d SUN /st 14:30 /it /f | Out-Null
 Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundColor Green
+
+# 6b) THE MISSING PIECES: schedule the daily LLM thesis + auto-apply. Without these the
+# thesis never fires on its own. 06:00 UTC generate (12:30 local), 06:30 UTC apply (13:00 local).
+$thCmd = 'C:\mt5-paper\llm-thesis.cmd'
+$thBody = "@echo off`r`n`"$py`" `"$repo\scripts\thesis_ingest.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
+[System.IO.File]::WriteAllText($thCmd, $thBody, (New-Object System.Text.ASCIIEncoding))
+schtasks /create /tn 'MT5-LLMThesis' /tr $thCmd /sc daily /st 12:30 /it /f | Out-Null
+$apCmd = 'C:\mt5-paper\apply-thesis.cmd'
+$apBody = "@echo off`r`n`"$py`" `"$repo\scripts\apply_approved_thesis.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
+[System.IO.File]::WriteAllText($apCmd, $apBody, (New-Object System.Text.ASCIIEncoding))
+schtasks /create /tn 'MT5-ApplyThesis' /tr $apCmd /sc daily /st 13:00 /it /f | Out-Null
+Write-Host '  [6b] MT5-LLMThesis (06:00 UTC) + MT5-ApplyThesis (06:30 UTC) scheduled' -ForegroundColor Green
 
 # 7) LLM thesis self-test — verify the Claude API key + model work end-to-end.
 #    thesis_ingest.py logs to STDERR; capturing that via "2>&1 |" while
