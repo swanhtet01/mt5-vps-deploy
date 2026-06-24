@@ -40,16 +40,37 @@ Write-Host '  [3] MT5-PositionMonitor scheduled (alerts every 5 min)' -Foregroun
 & $py "$repo\scripts\remote_control.py" 2>&1 | Out-Null
 Write-Host '  [4] alerts seeded + remote control applied' -ForegroundColor Green
 
-# 5) confirm to phone
+# 5) auto-deploy task — VPS polls GitHub releases every 15 min and self-updates
+$adScript = "$deploy\auto_deploy.ps1"
+Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/auto_deploy.ps1' `
+    -OutFile $adScript -UseBasicParsing -TimeoutSec 30
+$adCmd = "C:\mt5-paper\auto-deploy.cmd"
+$adBody = "@echo off`r`npowershell -ExecutionPolicy Bypass -File `"$adScript`" >> `"C:\mt5-paper\analytics\auto-deploy.log`" 2>&1"
+[System.IO.File]::WriteAllText($adCmd, $adBody, (New-Object System.Text.ASCIIEncoding))
+schtasks /create /tn 'MT5-AutoDeploy' /tr $adCmd /sc minute /mo 15 /it /f | Out-Null
+# Seed the current release tag so the first poll doesn't re-deploy immediately
+$rel = Invoke-WebRequest 'https://api.github.com/repos/swanhtet01/mt5-vps-deploy/releases/latest' `
+    -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
+$curTag = ($rel.Content | ConvertFrom-Json).tag_name
+if ($curTag) { Set-Content "$deploy\last_release_tag.txt" $curTag -NoNewline }
+Write-Host '  [5] MT5-AutoDeploy scheduled (checks GitHub every 15 min)' -ForegroundColor Green
+
+# 6) symbol scanner task — runs every Sunday 08:00 UTC to discover new edges
+$scanCmd = "C:\mt5-paper\symbol-scanner.cmd"
+$scanBody = "@echo off`r`n`"$py`" `"$repo\scripts\multi_symbol_scanner.py`" --symbols SPY,TLT,QQQ,CL,GC --timeframes 1h,4h --parallel 5 >> `"C:\mt5-paper\analytics\scanner.log`" 2>&1"
+[System.IO.File]::WriteAllText($scanCmd, $scanBody, (New-Object System.Text.ASCIIEncoding))
+schtasks /create /tn 'MT5-SymbolScanner' /tr $scanCmd /sc weekly /d SUN /st 08:00 /it /f | Out-Null
+Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundColor Green
+
+# 7) confirm to phone
 $topic = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
 if ($topic) {
     $env:NTFY_TOPIC = $topic
-    & $py "$repo\scripts\notify.py" 'Update done - trade alerts are now ON' 2>$null
+    & $py "$repo\scripts\notify.py" 'Update done - auto-deploy + scanner now active' 2>$null
 }
 
 Write-Host ''
 Write-Host '==== UPDATE COMPLETE ====' -ForegroundColor Green
-Write-Host '  - 3 helper tasks fixed (FRED/News/VPS-Health no longer false-error)'
-Write-Host '  - You now get a phone alert the moment a trade OPENS or CLOSES (with P/L)'
-Write-Host '  - And an alert whenever I change an edge remotely'
-Write-Host '  - No spam: alerts fire only on real events.'
+Write-Host '  - Auto-deploy: VPS now self-updates when you push a new GitHub release'
+Write-Host '  - Symbol scanner: runs every Sunday 08:00 UTC (finds new edges automatically)'
+Write-Host '  - Trade alerts: fire on real opens/closes only (no spam)'
