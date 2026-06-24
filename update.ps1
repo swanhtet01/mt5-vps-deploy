@@ -15,17 +15,36 @@ $deploy = 'C:\mt5-deploy'
 $repo   = 'C:\trading-agent'
 $py     = 'C:\mt5-venv\Scripts\python.exe'
 
-# 1) latest bundle
+# 1) latest bundle — resolve the newest GitHub release asset (not a hardcoded tag),
+#    so a freshly published release actually deploys. Falls back to v1 if the API is unreachable.
 New-Item -ItemType Directory -Path $deploy -Force | Out-Null
-Invoke-WebRequest 'https://github.com/swanhtet01/mt5-vps-deploy/releases/download/v1/mt5-bundle.zip' `
-    -OutFile "$deploy\mt5-bundle.zip" -UseBasicParsing -TimeoutSec 120
+$bundleUrl = 'https://github.com/swanhtet01/mt5-vps-deploy/releases/download/v1/mt5-bundle.zip'
+try {
+    $rel = Invoke-WebRequest 'https://api.github.com/repos/swanhtet01/mt5-vps-deploy/releases/latest' `
+        -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
+    $asset = ($rel.Content | ConvertFrom-Json).assets | Where-Object { $_.name -eq 'mt5-bundle.zip' } | Select-Object -First 1
+    if ($asset.browser_download_url) { $bundleUrl = $asset.browser_download_url }
+} catch { Write-Host '  (GitHub API unreachable; using v1 bundle)' -ForegroundColor DarkGray }
+Invoke-WebRequest $bundleUrl -OutFile "$deploy\mt5-bundle.zip" -UseBasicParsing -TimeoutSec 120
 Expand-Archive "$deploy\mt5-bundle.zip" -DestinationPath $deploy -Force
 Write-Host '  [1] latest code downloaded' -ForegroundColor Green
 
 # 2) refresh code only (scripts + engine src). Does NOT re-import scheduled tasks.
 robocopy "$deploy\trading-agent\scripts" "$repo\scripts" /E /NFL /NDL /NJH /NJS /NP | Out-Null
 robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+# Safety patch: the bundled thesis generator may still reference a retired Claude model.
+# Rewrite it to the current model so the LLM thesis never 404s, even from a stale bundle.
+$thesisFile = "$repo\src\mt5_agent\claude_thesis_generator.py"
+if (Test-Path $thesisFile) {
+    (Get-Content $thesisFile -Raw) -replace 'claude-3-5-sonnet-20241022', 'claude-opus-4-8' |
+        Set-Content $thesisFile -NoNewline
+}
 Write-Host '  [2] scripts + engine refreshed' -ForegroundColor Green
+
+# 2b) ensure required Python deps exist in the venv (anthropic for thesis, yfinance for scanner).
+#     pip is a no-op if already satisfied, so this is safe to run every time.
+& $py -m pip install --quiet anthropic yfinance 2>&1 | Out-Null
+Write-Host '  [2b] python deps verified (anthropic + yfinance)' -ForegroundColor Green
 
 # 3) position-monitor task -> phone alert on every trade open/close (every 5 min)
 $cmd = 'C:\mt5-paper\position-monitor-tick.cmd'
