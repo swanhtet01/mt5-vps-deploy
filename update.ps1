@@ -37,6 +37,17 @@ robocopy "$deploy\trading-agent\scripts" "$repo\scripts" /E /NFL /NDL /NJH /NJS 
 if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy scripts' -ForegroundColor Red; throw 'robocopy scripts failed' }
 robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy src' -ForegroundColor Red; throw 'robocopy src failed' }
+# 2-override: the published bundle's vps_health.py still has the noisy task check (warns on
+# ANY disabled MT5-* task -> chronic "scheduled_tasks: ?" false alarm). Drop in the fixed
+# version (warns only on CRITICAL tasks + names them) until the next full bundle rebuild
+# carries it natively. Self-retiring: skipped once the deployed copy already has the fix.
+if (-not (Select-String -Path "$repo\scripts\vps_health.py" -Pattern 'critical_down' -Quiet)) {
+    try {
+        Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/vps_health.py' `
+            -OutFile "$repo\scripts\vps_health.py" -UseBasicParsing -TimeoutSec 20
+        Write-Host '  [2-fix] vps_health task-alert noise fix applied' -ForegroundColor Green
+    } catch { Write-Host '  (could not fetch vps_health fix; non-fatal)' -ForegroundColor DarkGray }
+}
 Write-Host '  [2] scripts + engine refreshed (no patches; bundle is the source of truth)' -ForegroundColor Green
 
 # 2b) ensure runtime deps in the venv. pip is a no-op if already satisfied. Fail loud.
