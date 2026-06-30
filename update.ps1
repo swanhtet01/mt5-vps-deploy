@@ -37,16 +37,22 @@ robocopy "$deploy\trading-agent\scripts" "$repo\scripts" /E /NFL /NDL /NJH /NJS 
 if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy scripts' -ForegroundColor Red; throw 'robocopy scripts failed' }
 robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy src' -ForegroundColor Red; throw 'robocopy src failed' }
-# 2-override: the published bundle's vps_health.py still has the noisy task check (warns on
-# ANY disabled MT5-* task -> chronic "scheduled_tasks: ?" false alarm). Drop in the fixed
-# version (warns only on CRITICAL tasks + names them) until the next full bundle rebuild
-# carries it natively. Self-retiring: skipped once the deployed copy already has the fix.
-if (-not (Select-String -Path "$repo\scripts\vps_health.py" -Pattern 'critical_down' -Quiet)) {
-    try {
-        Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/vps_health.py' `
-            -OutFile "$repo\scripts\vps_health.py" -UseBasicParsing -TimeoutSec 20
-        Write-Host '  [2-fix] vps_health task-alert noise fix applied' -ForegroundColor Green
-    } catch { Write-Host '  (could not fetch vps_health fix; non-fatal)' -ForegroundColor DarkGray }
+# 2-hotfix: drop in fixed scripts from ghrepo until the next full bundle rebuild carries them
+# natively. Each entry SELF-RETIRES once the deployed copy already contains its marker, so this
+# becomes a no-op after a clean rebuild. Non-fatal on fetch failure.
+$hotfixes = @(
+    @{ file = 'vps_health.py';         marker = 'critical_down';      desc = 'health task-alert noise (warn only on critical)' },
+    @{ file = 'killswitch_monitor.py'; marker = '_live_flag_is_set';  desc = 'kill-switch alert spam (alert once, not every 2h)' }
+)
+foreach ($h in $hotfixes) {
+    $dest = "$repo\scripts\$($h.file)"
+    if (-not (Test-Path $dest) -or -not (Select-String -Path $dest -Pattern $h.marker -Quiet)) {
+        try {
+            Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$($h.file)" `
+                -OutFile $dest -UseBasicParsing -TimeoutSec 20
+            Write-Host "  [2-fix] $($h.desc)" -ForegroundColor Green
+        } catch { Write-Host "  (could not fetch $($h.file) hotfix; non-fatal)" -ForegroundColor DarkGray }
+    }
 }
 Write-Host '  [2] scripts + engine refreshed (no patches; bundle is the source of truth)' -ForegroundColor Green
 
