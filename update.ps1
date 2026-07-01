@@ -40,19 +40,14 @@ if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy src' -Foregroun
 # 2-hotfix: drop in fixed scripts from ghrepo until the next full bundle rebuild carries them
 # natively. Each entry SELF-RETIRES once the deployed copy already contains its marker, so this
 # becomes a no-op after a clean rebuild. Non-fatal on fetch failure.
-$hotfixes = @(
-    @{ file = 'vps_health.py';         marker = 'critical_down';      desc = 'health task-alert noise (warn only on critical)' },
-    @{ file = 'killswitch_monitor.py'; marker = '_live_flag_is_set';  desc = 'kill-switch alert spam (alert once, not every 2h)' }
-)
-foreach ($h in $hotfixes) {
-    $dest = "$repo\scripts\$($h.file)"
-    if (-not (Test-Path $dest) -or -not (Select-String -Path $dest -Pattern $h.marker -Quiet)) {
-        try {
-            Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$($h.file)" `
-                -OutFile $dest -UseBasicParsing -TimeoutSec 20
-            Write-Host "  [2-fix] $($h.desc)" -ForegroundColor Green
-        } catch { Write-Host "  (could not fetch $($h.file) hotfix; non-fatal)" -ForegroundColor DarkGray }
-    }
+$hotfixes = @('vps_health.py', 'killswitch_monitor.py')
+foreach ($hf in $hotfixes) {
+    $dest = "$repo\scripts\$hf"
+    try {
+        Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$hf" `
+            -OutFile $dest -UseBasicParsing -TimeoutSec 20
+        Write-Host "  [2-fix] synced $hf from ghrepo (latest hotfix)" -ForegroundColor Green
+    } catch { Write-Host "  (could not sync $hf; keeping bundle copy)" -ForegroundColor DarkGray }
 }
 Write-Host '  [2] scripts + engine refreshed (no patches; bundle is the source of truth)' -ForegroundColor Green
 
@@ -65,6 +60,22 @@ Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, psutil)' -F
 #     also push to the phone, and so notify.py's registry fallback always finds it.
 $ntfyUser = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
 if ($ntfyUser) { [Environment]::SetEnvironmentVariable('NTFY_TOPIC', $ntfyUser, 'Machine') }
+
+# 2d) one-shot remote RE-ARM. If ghrepo publishes a rearm.token newer than the last one we
+# applied, set MT5_GOLD_DRIFT_LIVE=1 (User scope - the SAME scope the kill-switch clears, so
+# arm/disarm stay symmetric). This lets live trading be re-armed remotely (no VNC) on an
+# explicit request. The kill-switch can still disarm afterwards; re-arming again needs a NEW
+# token - a killed bot never silently re-arms itself.
+try {
+    $rt = (Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/rearm.token' `
+        -UseBasicParsing -TimeoutSec 15).Content.Trim()
+    $rtApplied = if (Test-Path "$deploy\last_rearm.txt") { (Get-Content "$deploy\last_rearm.txt" -Raw).Trim() } else { '' }
+    if ($rt -and $rt -ne $rtApplied) {
+        [Environment]::SetEnvironmentVariable('MT5_GOLD_DRIFT_LIVE', '1', 'User')
+        Set-Content "$deploy\last_rearm.txt" $rt -NoNewline
+        Write-Host "  [2d] LIVE RE-ARMED (token: $rt)" -ForegroundColor Green
+    }
+} catch { Write-Host '  (rearm.token check skipped; non-fatal)' -ForegroundColor DarkGray }
 
 # 3) position-monitor task -> phone alert on every trade open/close (every 5 min)
 $cmd = 'C:\mt5-paper\position-monitor-tick.cmd'

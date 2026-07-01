@@ -36,11 +36,15 @@ LIVE_MAGICS = {88001, 88002, 88003, 88004, 88005, 88006, 88007, 88008}
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
 LOG = Path(r"C:\mt5-paper\gold-drift\killswitch.jsonl")
 
-# Hard thresholds (all in USD; account is ~$608 equity)
-THRESH_30D_LOSS = -60.0
-THRESH_7D_LOSS = -30.0
-THRESH_LOSING_STREAK = 5
-THRESH_EQUITY_FLOOR = 500.0
+# Hard thresholds (all in USD). RECALIBRATED 2026-06-25: the old -$30/7d brake sat BELOW the
+# noise floor of a minimum-lot (0.01) strategy that naturally swings +/-$40-60/week, so it
+# false-tripped on normal variance (fired on a -$41.28 week that was within backtest DD).
+# New brakes sit ABOVE normal weekly noise but still stop a genuine breakdown; protection
+# shifts toward the equity FLOOR (the real catastrophe stop) and away from the noisy 7d figure.
+THRESH_30D_LOSS = -110.0      # ~16% of equity over a month (was -60)
+THRESH_7D_LOSS = -65.0        # above the ~$50 weekly noise floor at 0.01 lot (was -30)
+THRESH_LOSING_STREAK = 6      # small edges have 5-6 loss runs by chance (was 5)
+THRESH_EQUITY_FLOOR = 530.0   # hard stop ~ -22% from ~$680; tightened as the real backstop (was 500)
 
 
 def append(event: dict) -> None:
