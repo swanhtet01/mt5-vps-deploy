@@ -14,58 +14,12 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 $deploy = 'C:\mt5-deploy'
 $repo   = 'C:\trading-agent'
 $py     = 'C:\mt5-venv\Scripts\python.exe'
-
-# 1) latest bundle - resolve the newest GitHub release asset (not a hardcoded tag),
-#    so a freshly published release actually deploys. Falls back to v1 if the API is unreachable.
 New-Item -ItemType Directory -Path $deploy -Force | Out-Null
-$bundleUrl = 'https://github.com/swanhtet01/mt5-vps-deploy/releases/download/v1/mt5-bundle.zip'
-try {
-    $rel = Invoke-WebRequest 'https://api.github.com/repos/swanhtet01/mt5-vps-deploy/releases/latest' `
-        -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
-    $asset = ($rel.Content | ConvertFrom-Json).assets | Where-Object { $_.name -eq 'mt5-bundle.zip' } | Select-Object -First 1
-    if ($asset.browser_download_url) { $bundleUrl = $asset.browser_download_url }
-} catch { Write-Host '  (GitHub API unreachable; using v1 bundle)' -ForegroundColor DarkGray }
-Invoke-WebRequest $bundleUrl -OutFile "$deploy\mt5-bundle.zip" -UseBasicParsing -TimeoutSec 120
-Expand-Archive "$deploy\mt5-bundle.zip" -DestinationPath $deploy -Force
-Write-Host '  [1] latest code downloaded' -ForegroundColor Green
 
-# 2) refresh code (scripts + engine src). The bundle now carries ALL fixes at source
-#    (model id, registry key fallback, real ntfy push, gold lot clamp, thesis fail-safes),
-#    so there are no fragile in-place patches anymore. Fail LOUD on a bad copy: robocopy
-#    exit codes 0-7 are success, >=8 is a real failure.
-robocopy "$deploy\trading-agent\scripts" "$repo\scripts" /E /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy scripts' -ForegroundColor Red; throw 'robocopy scripts failed' }
-robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
-if ($LASTEXITCODE -ge 8) { Write-Host '  DEPLOY FAILED: robocopy src' -ForegroundColor Red; throw 'robocopy src failed' }
-# 2-hotfix: drop in fixed scripts from ghrepo until the next full bundle rebuild carries them
-# natively. Each entry SELF-RETIRES once the deployed copy already contains its marker, so this
-# becomes a no-op after a clean rebuild. Non-fatal on fetch failure.
-$hotfixes = @('vps_health.py', 'killswitch_monitor.py')
-foreach ($hf in $hotfixes) {
-    $dest = "$repo\scripts\$hf"
-    try {
-        Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$hf" `
-            -OutFile $dest -UseBasicParsing -TimeoutSec 20
-        Write-Host "  [2-fix] synced $hf from ghrepo (latest hotfix)" -ForegroundColor Green
-    } catch { Write-Host "  (could not sync $hf; keeping bundle copy)" -ForegroundColor DarkGray }
-}
-Write-Host '  [2] scripts + engine refreshed (no patches; bundle is the source of truth)' -ForegroundColor Green
-
-# 2b) ensure runtime deps in the venv. pip is a no-op if already satisfied. Fail loud.
-& $py -m pip install --quiet anthropic yfinance numpy psutil
-if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: pip install' -ForegroundColor Red; throw 'pip install failed' }
-Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, psutil)' -ForegroundColor Green
-
-# 2c) mirror NTFY_TOPIC to Machine scope so SYSTEM-context tasks (e.g. a boot alert) can
-#     also push to the phone, and so notify.py's registry fallback always finds it.
-$ntfyUser = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
-if ($ntfyUser) { [Environment]::SetEnvironmentVariable('NTFY_TOPIC', $ntfyUser, 'Machine') }
-
-# 2d) one-shot remote RE-ARM. If ghrepo publishes a rearm.token newer than the last one we
-# applied, set MT5_GOLD_DRIFT_LIVE=1 (User scope - the SAME scope the kill-switch clears, so
-# arm/disarm stay symmetric). This lets live trading be re-armed remotely (no VNC) on an
-# explicit request. The kill-switch can still disarm afterwards; re-arming again needs a NEW
-# token - a killed bot never silently re-arms itself.
+# 0) HIGHEST PRIORITY - re-arm live trading + sync the script hotfixes FIRST, each wrapped so
+#    nothing later can abort them. These are the money-critical actions; the bundle refresh
+#    below is best-effort. (A previous version put these after the bundle download, so a web
+#    hiccup at $ErrorActionPreference='Stop' silently skipped the re-arm entirely.)
 try {
     $rt = (Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/rearm.token' `
         -UseBasicParsing -TimeoutSec 15).Content.Trim()
@@ -73,9 +27,61 @@ try {
     if ($rt -and $rt -ne $rtApplied) {
         [Environment]::SetEnvironmentVariable('MT5_GOLD_DRIFT_LIVE', '1', 'User')
         Set-Content "$deploy\last_rearm.txt" $rt -NoNewline
-        Write-Host "  [2d] LIVE RE-ARMED (token: $rt)" -ForegroundColor Green
+        Write-Host "  [0] LIVE RE-ARMED (token: $rt)" -ForegroundColor Green
+    } else { Write-Host '  [0] re-arm token unchanged (no-op)' -ForegroundColor DarkGray }
+} catch { Write-Host '  [0] rearm check skipped (non-fatal)' -ForegroundColor DarkGray }
+foreach ($hf in @('vps_health.py', 'killswitch_monitor.py')) {
+    try {
+        Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$hf" `
+            -OutFile "$repo\scripts\$hf" -UseBasicParsing -TimeoutSec 20
+        Write-Host "  [0] hotfix synced: $hf" -ForegroundColor Green
+    } catch { Write-Host "  [0] hotfix $hf skipped (non-fatal)" -ForegroundColor DarkGray }
+}
+
+# 1) latest bundle - best-effort. If the download/extract fails, we KEEP the existing (already
+#    verified) money-path code rather than copying from a bad bundle. $bundleOk gates the copy.
+$bundleUrl = 'https://github.com/swanhtet01/mt5-vps-deploy/releases/download/v1/mt5-bundle.zip'
+$bundleOk = $false
+try {
+    $rel = Invoke-WebRequest 'https://api.github.com/repos/swanhtet01/mt5-vps-deploy/releases/latest' `
+        -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
+    $asset = ($rel.Content | ConvertFrom-Json).assets | Where-Object { $_.name -eq 'mt5-bundle.zip' } | Select-Object -First 1
+    if ($asset.browser_download_url) { $bundleUrl = $asset.browser_download_url }
+} catch { Write-Host '  (GitHub API unreachable; using v1 bundle URL)' -ForegroundColor DarkGray }
+try {
+    Invoke-WebRequest $bundleUrl -OutFile "$deploy\mt5-bundle.zip" -UseBasicParsing -TimeoutSec 120
+    Expand-Archive "$deploy\mt5-bundle.zip" -DestinationPath $deploy -Force
+    $bundleOk = (Test-Path "$deploy\trading-agent\scripts")
+    Write-Host '  [1] latest code downloaded' -ForegroundColor Green
+} catch { Write-Host '  [1] bundle download/extract failed - keeping existing code (non-fatal)' -ForegroundColor Yellow }
+
+# 2) refresh money-path code ONLY from a cleanly-extracted bundle. robocopy exit >=8 = real
+#    error -> WARN (don't abort; the hotfixes + re-arm above already applied).
+if ($bundleOk) {
+    robocopy "$deploy\trading-agent\scripts" "$repo\scripts" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { Write-Host '  WARN: robocopy scripts had errors (continuing)' -ForegroundColor Yellow }
+    robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+    if ($LASTEXITCODE -ge 8) { Write-Host '  WARN: robocopy src had errors (continuing)' -ForegroundColor Yellow }
+    # Re-apply the hotfixes AFTER robocopy (which restores the bundle's older copies over them).
+    foreach ($hf in @('vps_health.py', 'killswitch_monitor.py')) {
+        try {
+            Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$hf" `
+                -OutFile "$repo\scripts\$hf" -UseBasicParsing -TimeoutSec 20
+        } catch {}
     }
-} catch { Write-Host '  (rearm.token check skipped; non-fatal)' -ForegroundColor DarkGray }
+}
+Write-Host '  [2] scripts + engine refreshed (hotfixes applied in step 0)' -ForegroundColor Green
+
+# 2b) ensure runtime deps in the venv. WARN (don't abort) so a transient pip/network hiccup
+# can't block the rest of a deploy - the re-arm + hotfixes already applied in step 0.
+& $py -m pip install --quiet anthropic yfinance numpy psutil
+if ($LASTEXITCODE) { Write-Host '  WARN: pip install had errors (continuing)' -ForegroundColor Yellow }
+else { Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, psutil)' -ForegroundColor Green }
+
+# 2c) mirror NTFY_TOPIC to Machine scope so SYSTEM-context tasks (e.g. a boot alert) can
+#     also push to the phone, and so notify.py's registry fallback always finds it.
+$ntfyUser = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
+if ($ntfyUser) { [Environment]::SetEnvironmentVariable('NTFY_TOPIC', $ntfyUser, 'Machine') }
 
 # 3) position-monitor task -> phone alert on every trade open/close (every 5 min)
 $cmd = 'C:\mt5-paper\position-monitor-tick.cmd'
@@ -127,17 +133,17 @@ $ciCmd = 'C:\mt5-paper\context-ingest.cmd'
 $ciBody = "@echo off`r`n`"$py`" `"$repo\scripts\context_ingest.py`" --data-cache-dir `"$repo\data_cache`" >> `"C:\mt5-paper\analytics\context.log`" 2>&1"
 [System.IO.File]::WriteAllText($ciCmd, $ciBody, (New-Object System.Text.ASCIIEncoding))
 schtasks /create /tn 'MT5-ContextIngest' /tr $ciCmd /sc daily /st 04:30 /it /f | Out-Null
-if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: MT5-ContextIngest' -ForegroundColor Red; throw 'schtasks ContextIngest' }
+if ($LASTEXITCODE) { Write-Host '  WARN: MT5-ContextIngest create failed (continuing)' -ForegroundColor Yellow }
 $thCmd = 'C:\mt5-paper\llm-thesis.cmd'
 $thBody = "@echo off`r`n`"$py`" `"$repo\scripts\thesis_ingest.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
 [System.IO.File]::WriteAllText($thCmd, $thBody, (New-Object System.Text.ASCIIEncoding))
 schtasks /create /tn 'MT5-LLMThesis' /tr $thCmd /sc daily /st 05:00 /it /f | Out-Null
-if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: MT5-LLMThesis' -ForegroundColor Red; throw 'schtasks LLMThesis' }
+if ($LASTEXITCODE) { Write-Host '  WARN: MT5-LLMThesis create failed (continuing)' -ForegroundColor Yellow }
 $apCmd = 'C:\mt5-paper\apply-thesis.cmd'
 $apBody = "@echo off`r`n`"$py`" `"$repo\scripts\apply_approved_thesis.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
 [System.IO.File]::WriteAllText($apCmd, $apBody, (New-Object System.Text.ASCIIEncoding))
 schtasks /create /tn 'MT5-ApplyThesis' /tr $apCmd /sc daily /st 05:30 /it /f | Out-Null
-if ($LASTEXITCODE) { Write-Host '  DEPLOY FAILED: MT5-ApplyThesis' -ForegroundColor Red; throw 'schtasks ApplyThesis' }
+if ($LASTEXITCODE) { Write-Host '  WARN: MT5-ApplyThesis create failed (continuing)' -ForegroundColor Yellow }
 # Defensive: ensure the kill-switch (cumulative-drawdown brake) is ENABLED, not just present.
 schtasks /change /tn 'MT5-GoldDrift-KillSwitch' /enable 2>$null | Out-Null
 Write-Host '  [6b] context-ingest + thesis + apply scheduled (22:00/22:30/23:00 UTC, pre-entry); kill-switch enabled' -ForegroundColor Green
