@@ -28,6 +28,13 @@ try {
         [Environment]::SetEnvironmentVariable('MT5_GOLD_DRIFT_LIVE', '1', 'User')
         Set-Content "$deploy\last_rearm.txt" $rt -NoNewline
         Write-Host "  [0] LIVE RE-ARMED (token: $rt)" -ForegroundColor Green
+        # ONE-TIME confirmation ping (fires only when a NEW token actually re-arms) so the
+        # re-arm is visible + confirms the deploy pipeline is alive. Not spam: once per token.
+        try {
+            $env:NTFY_TOPIC = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
+            if (-not $env:NTFY_TOPIC) { $env:NTFY_TOPIC = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','Machine') }
+            & $py "$repo\scripts\notify.py" "Bot RE-ARMED and live again (deploy confirmed). Kill-switch recalibrated to -65/7d so it stops false-tripping on normal swings." 2>$null
+        } catch {}
     } else { Write-Host '  [0] re-arm token unchanged (no-op)' -ForegroundColor DarkGray }
 } catch { Write-Host '  [0] rearm check skipped (non-fatal)' -ForegroundColor DarkGray }
 foreach ($hf in @('vps_health.py', 'killswitch_monitor.py')) {
