@@ -28,6 +28,14 @@ from pathlib import Path
 
 import MetaTrader5 as mt5
 
+from mt5_agent.mt5_execution import (
+    FeedHistoryWindow,
+    coherent_feed_clock_from_mt5,
+    history_window_from_feed_clock,
+    persistent_user_flag_enabled,
+)
+from mt5_agent.trade_history import closed_trades_from_deals
+
 # The kill-switch disarms MT5_GOLD_DRIFT_LIVE, which arms ALL live edges -- so the cumulative
 # loss/streak guards MUST sum across ALL live magics, not just gold (88001). Otherwise a
 # drawdown on USDJPY/UK100/etc. never trips it and only the per-day caps + equity floor cover
@@ -45,6 +53,7 @@ THRESH_30D_LOSS = -110.0      # ~16% of equity over a month (was -60)
 THRESH_7D_LOSS = -65.0        # above the ~$50 weekly noise floor at 0.01 lot (was -30)
 THRESH_LOSING_STREAK = 6      # small edges have 5-6 loss runs by chance (was 5)
 THRESH_EQUITY_FLOOR = 530.0   # hard stop ~ -22% from ~$680; tightened as the real backstop (was 500)
+REFERENCE_SYMBOLS = ("BTCUSD", "GOLD", "USDJPY")
 
 
 def append(event: dict) -> None:
@@ -55,17 +64,7 @@ def append(event: dict) -> None:
 
 
 def _live_flag_is_set() -> bool:
-    """Read MT5_GOLD_DRIFT_LIVE fresh from the HKCU registry (a freshly-launched scheduled
-    task can carry a stale process env). True only if the flag is present and non-empty."""
-    try:
-        import winreg
-        with winreg.OpenKey(winreg.HKEY_CURRENT_USER, "Environment") as _k:
-            val, _ = winreg.QueryValueEx(_k, LIVE_ENV_FLAG)
-            return bool(str(val).strip())
-    except FileNotFoundError:
-        return False
-    except Exception:
-        return bool(os.environ.get(LIVE_ENV_FLAG))
+    return persistent_user_flag_enabled(LIVE_ENV_FLAG)
 
 
 def disarm(reason: str, payload: dict) -> None:
@@ -92,6 +91,60 @@ def disarm(reason: str, payload: dict) -> None:
         pass
 
 
+def recent_history(host_utc: datetime) -> tuple[str, FeedHistoryWindow, list]:
+    symbol, clock = coherent_feed_clock_from_mt5(
+        mt5,
+        REFERENCE_SYMBOLS,
+        host_utc=host_utc,
+    )
+    window = history_window_from_feed_clock(clock, lookback=timedelta(days=45))
+    deals = mt5.history_deals_get(window.start, window.end)
+    if deals is None:
+        raise RuntimeError(f"history_deals_get failed: {mt5.last_error()}")
+    return symbol, window, list(deals)
+
+
+def summarize_losses(deals: list, history_window: FeedHistoryWindow) -> dict[str, float | int]:
+    feed_now = history_window.clock.feed_time
+    position_deals = [
+        deal
+        for deal in deals
+        if int(getattr(deal, "position_id", 0) or 0) > 0
+        and bool(str(getattr(deal, "symbol", "") or "").strip())
+    ]
+    closed_trades = closed_trades_from_deals(position_deals)
+    account_pnls = [(trade.close_time, trade.net) for trade in closed_trades]
+    agent_pnls = [
+        (trade.close_time, trade.net)
+        for trade in closed_trades
+        if trade.magic in LIVE_MAGICS
+    ]
+
+    def realized(period_days: int, values: list[tuple[datetime, float]]) -> float:
+        cutoff = feed_now - timedelta(days=period_days)
+        return sum(
+            pnl
+            for closed_at, pnl in values
+            if cutoff <= closed_at <= history_window.end
+        )
+
+    streak = 0
+    for _, pnl in reversed(agent_pnls):
+        if pnl < 0:
+            streak += 1
+        else:
+            break
+    return {
+        "n_closed_trades": len(agent_pnls),
+        "n_account_closed_trades": len(account_pnls),
+        "realized_30d_usd": realized(30, agent_pnls),
+        "realized_7d_usd": realized(7, agent_pnls),
+        "account_realized_30d_usd": realized(30, account_pnls),
+        "account_realized_7d_usd": realized(7, account_pnls),
+        "current_losing_streak": streak,
+    }
+
+
 def main():
     if not mt5.initialize():
         print(f"killswitch: mt5.initialize failed: {mt5.last_error()} (skipping this cycle)", file=sys.stderr)
@@ -99,32 +152,38 @@ def main():
     try:
         now = datetime.now(tz=timezone.utc)
         ai = mt5.account_info()
-        # Pull deals since bot inception (be safe with a wider window)
-        start = now - timedelta(days=45)
-        deals = mt5.history_deals_get(start, now + timedelta(minutes=1))
-        our_exits = sorted([d for d in (deals or []) if d.magic in LIVE_MAGICS and d.entry == 1],
-                           key=lambda d: d.time)
-        pnls = [(datetime.fromtimestamp(d.time, tz=timezone.utc), d.profit + d.commission + d.swap)
-                for d in our_exits]
-
-        last_30d = sum(p for t, p in pnls if (now - t).days <= 30)
-        last_7d = sum(p for t, p in pnls if (now - t).days <= 7)
-        # losing streak (most recent N consecutive losses)
-        streak = 0
-        for _, p in reversed(pnls):
-            if p < 0:
-                streak += 1
+        if ai is None:
+            raise RuntimeError(f"account_info failed: {mt5.last_error()}")
+        try:
+            reference_symbol, history_window, deals = recent_history(now)
+        except RuntimeError as exc:
+            payload = {"error": str(exc), "host_utc": now.isoformat()}
+            if _live_flag_is_set():
+                disarm("history feed clock unavailable", payload)
             else:
-                break
+                append({"event": "killswitch_history_unavailable", "ts": now.isoformat(), **payload})
+            return
+        losses = summarize_losses(deals, history_window)
+        last_30d = float(losses["realized_30d_usd"])
+        last_7d = float(losses["realized_7d_usd"])
+        account_last_30d = float(losses["account_realized_30d_usd"])
+        account_last_7d = float(losses["account_realized_7d_usd"])
+        streak = int(losses["current_losing_streak"])
 
         state = {
             "ts": now.isoformat(),
+            "history_reference_symbol": reference_symbol,
+            **history_window.as_dict(),
             "equity": ai.equity, "balance": ai.balance,
-            "n_closed_trades": len(pnls),
+            "n_closed_trades": int(losses["n_closed_trades"]),
+            "n_account_closed_trades": int(losses["n_account_closed_trades"]),
             "realized_30d_usd": round(last_30d, 2),
             "realized_7d_usd": round(last_7d, 2),
+            "account_realized_30d_usd": round(account_last_30d, 2),
+            "account_realized_7d_usd": round(account_last_7d, 2),
             "current_losing_streak": streak,
-            "env_flag_now": os.environ.get(LIVE_ENV_FLAG, "(unset)"),
+            "persistent_live_authorized": _live_flag_is_set(),
+            "process_env_value": os.environ.get(LIVE_ENV_FLAG, "(unset)"),
         }
         append({"event": "monitor_heartbeat", **state})
 
@@ -133,6 +192,14 @@ def main():
             reasons.append(f"30-day loss ${last_30d:.2f} <= ${THRESH_30D_LOSS}")
         if last_7d <= THRESH_7D_LOSS:
             reasons.append(f"7-day loss ${last_7d:.2f} <= ${THRESH_7D_LOSS}")
+        if account_last_30d <= THRESH_30D_LOSS:
+            reasons.append(
+                f"account 30-day loss ${account_last_30d:.2f} <= ${THRESH_30D_LOSS}"
+            )
+        if account_last_7d <= THRESH_7D_LOSS:
+            reasons.append(
+                f"account 7-day loss ${account_last_7d:.2f} <= ${THRESH_7D_LOSS}"
+            )
         if streak >= THRESH_LOSING_STREAK:
             reasons.append(f"losing streak {streak} >= {THRESH_LOSING_STREAK}")
         if ai.equity <= THRESH_EQUITY_FLOOR:
@@ -142,7 +209,9 @@ def main():
             disarm(" | ".join(reasons), state)
         else:
             print(f"OK — all killswitch thresholds clear. equity=${ai.equity:.2f} "
-                  f"30d=${last_30d:+.2f} 7d=${last_7d:+.2f} streak={streak}")
+                  f"agent30d=${last_30d:+.2f} agent7d=${last_7d:+.2f} "
+                  f"account30d=${account_last_30d:+.2f} "
+                  f"account7d=${account_last_7d:+.2f} streak={streak}")
     finally:
         mt5.shutdown()
 

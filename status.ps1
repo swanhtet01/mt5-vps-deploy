@@ -27,11 +27,71 @@ Write-Host ''
 Write-Host '--- performance ---' -ForegroundColor Yellow
 if (Test-Path "$repo\scripts\perf_report.py") { & $py "$repo\scripts\perf_report.py" 2>&1 | Select-Object -First 12 }
 
-# 4) Gold-drift regime gate (THE reason it trades or sits out in the morning)
+# 4) Broker-clock scheduler state, live authorization, and overdue positions
 Write-Host ''
-Write-Host '--- gold-drift regime gate (why it traded or sat out) ---' -ForegroundColor Yellow
+Write-Host '--- structural scheduler (broker clock + authorization) ---' -ForegroundColor Yellow
+if (Test-Path "$repo\scripts\structural_scheduler.py") {
+    & $py "$repo\scripts\structural_scheduler.py" --status 2>&1 | Select-Object -First 40
+} else {
+    Write-Host 'MISSING: structural_scheduler.py' -ForegroundColor Red
+}
+
+# 4b) Regime evidence remains useful, but it does not prove the scheduler is running.
+Write-Host ''
+Write-Host '--- gold regime evidence ---' -ForegroundColor Yellow
 if (Test-Path "$repo\scripts\check_gold_asian_regime.py") { & $py "$repo\scripts\check_gold_asian_regime.py" 2>&1 | Select-Object -First 15 }
-elseif (Test-Path "$repo\scripts\dashboard.py") { & $py "$repo\scripts\dashboard.py" 2>&1 | Select-Object -First 20 }
+
+# 4c) Provider-independent Vibe research state. This is research evidence only.
+Write-Host ''
+Write-Host '--- Vibe deterministic baseline (research-only) ---' -ForegroundColor Yellow
+$vibeStatePath = 'C:\mt5-vibe-research\last-baseline.json'
+if (Test-Path $vibeStatePath) {
+    $vibe = Get-Content $vibeStatePath -Raw | ConvertFrom-Json
+    $ageHours = if ($vibe.finished_at) {
+        [Math]::Round(((Get-Date).ToUniversalTime() - ([DateTime]$vibe.finished_at).ToUniversalTime()).TotalHours, 1)
+    } else { $null }
+    [pscustomobject]@{
+        Status = $vibe.status
+        AgeHours = $ageHours
+        Symbols = $vibe.symbols_loaded
+        Discovered = $vibe.candidate_count
+        Screened = $vibe.historical_screen_trials
+        ScreenPass = $vibe.historical_screen_pass_count
+        Paper = $vibe.paper_candidate_count
+        LiveEligible = $vibe.live_eligible_count
+        OrderAuthority = $vibe.order_authority
+    } | Format-Table -AutoSize
+} elseif (Test-Path 'C:\mt5-vibe-research\install.json') {
+    Write-Host 'MISSING: deterministic baseline has not completed.' -ForegroundColor Red
+} else {
+    Write-Host 'Vibe sidecar is not installed.' -ForegroundColor DarkGray
+}
+
+# 4d) Autonomous quote-only forward evidence. This never indicates live authority.
+Write-Host ''
+Write-Host '--- Vibe shadow-forward evidence (quote-only) ---' -ForegroundColor Yellow
+$vibeShadowPath = "$repo\data_cache\vibe_shadow_forward_report.json"
+if (Test-Path $vibeShadowPath) {
+    $shadow = Get-Content $vibeShadowPath -Raw | ConvertFrom-Json
+    $shadowAgeMinutes = if ($shadow.generated_at_host_utc) {
+        [Math]::Round(((Get-Date).ToUniversalTime() - ([DateTime]$shadow.generated_at_host_utc).ToUniversalTime()).TotalMinutes, 1)
+    } else { $null }
+    [pscustomobject]@{
+        Artifact = $shadow.artifact_status
+        AgeMinutes = $shadowAgeMinutes
+        Experiments = $shadow.experiment_count
+        Open = $shadow.open_position_count
+        Closed = $shadow.closed_trade_count
+        PaperNetUSD = $shadow.paper_net_pnl_usd
+        EvidencePass = $shadow.paper_evidence_gate_pass_count
+        LiveEligible = $shadow.live_eligible_count
+        OrderAuthority = $shadow.order_authority
+    } | Format-Table -AutoSize
+} elseif (Test-Path 'C:\mt5-vibe-research\install.json') {
+    Write-Host 'MISSING: Vibe shadow heartbeat has not completed.' -ForegroundColor Red
+} else {
+    Write-Host 'Vibe sidecar is not installed.' -ForegroundColor DarkGray
+}
 
 # 5) Push a one-line summary to the phone
 $topic = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
@@ -43,5 +103,6 @@ if ($topic -and (Test-Path $py)) {
 }
 
 Write-Host ''
-Write-Host 'READ ME: if MT5-GoldDrift-Live-Enter shows a LastRunTime today + result 0,' -ForegroundColor Cyan
-Write-Host 'the bot is HEALTHY -- it just chose not to trade (regime gate). That is normal.' -ForegroundColor Cyan
+Write-Host 'READ ME: MT5-StructuralScheduler must run every 5 minutes.' -ForegroundColor Cyan
+Write-Host 'MT5-VibeShadow must also run every 5 minutes and always show OrderAuthority=False.' -ForegroundColor Cyan
+Write-Host 'PAPER or an empty allowlist means no real entries by design; it is not a regime decision.' -ForegroundColor Cyan

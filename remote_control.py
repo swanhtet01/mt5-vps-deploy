@@ -17,9 +17,10 @@ control.json schema:
     ]
   }
 
-AUTHORITATIVE: remote entries are tagged source="remote" and fully reconciled each run, so
-removing an edge from control.json RE-ENABLES it on the next poll. self_improver's own
-blacklist entries (no source tag) are preserved untouched.
+Remote entries are tagged source="remote" and fully reconciled each run. Removing an edge
+only removes that blacklist block; it does not enable a disabled Windows task and it does
+not add the strategy to structural_live_allowlist.json. self_improver's own blacklist
+entries (no source tag) are preserved untouched.
 
 Fail-safe: any fetch/parse error leaves the existing blacklist exactly as-is.
 Stdlib only. Run every few minutes by a scheduled task (MT5-RemoteControl).
@@ -82,6 +83,29 @@ def reconcile(control: dict, current: dict) -> dict:
     return new
 
 
+def _remote_set(bl: dict) -> set:
+    return {(e.get("symbol"), int(e.get("magic", 0))) for e in bl.get("entries", [])
+            if e.get("source") == "remote"}
+
+
+def _notify_change(added: set, removed: set, pause_all: bool) -> None:
+    """Best-effort phone alert when a remote action takes effect (only on real change)."""
+    try:
+        import notify as notifier  # sibling
+        parts = []
+        if pause_all:
+            parts.append("ALL trading PAUSED")
+        for sym, magic in sorted(added):
+            parts.append(f"disabled {sym} ({magic})")
+        for sym, magic in sorted(removed):
+            parts.append(f"re-enabled {sym} ({magic})")
+        if parts:
+            notifier.send_ntfy("Remote action applied: " + "; ".join(parts),
+                               title="Bot config changed", tags="gear")
+    except Exception:
+        pass
+
+
 def main() -> None:
     try:
         control = fetch_control()
@@ -89,10 +113,17 @@ def main() -> None:
         print(f"remote_control: fetch failed ({exc}); blacklist left untouched", file=sys.stderr)
         return
     current = read_json(BLACKLIST_FILE) or {}
+    old_remote = _remote_set(current)
     new = reconcile(control, current)
+    new_remote = _remote_set(new)
     write_json_atomic(BLACKLIST_FILE, new)
+
+    added, removed = new_remote - old_remote, old_remote - new_remote
+    if added or removed:
+        _notify_change(added, removed, bool(control.get("pause_all")))
     rc = new["remote_control"]
-    print(f"remote_control: applied (remote_entries={rc['remote_count']}, pause_all={rc['pause_all']})")
+    print(f"remote_control: applied (remote_entries={rc['remote_count']}, pause_all={rc['pause_all']}, "
+          f"changed={bool(added or removed)})")
 
 
 if __name__ == "__main__":

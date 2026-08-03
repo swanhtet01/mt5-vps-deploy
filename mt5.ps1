@@ -19,7 +19,7 @@ if (-not $exe) {
 if ($exe) {
     Write-Host "FOUND: $exe" -ForegroundColor Green
     Start-Process $exe
-    Write-Host 'MT5 is opening. Log in: 314105549 / your XM password / server XMGlobal-MT5' -ForegroundColor Yellow
+    Write-Host 'MT5 is opening. Use the account details stored in your password manager.' -ForegroundColor Yellow
 } else {
     Write-Host 'MetaTrader 5 not found on disk. Tell Claude and we will reinstall it.' -ForegroundColor Red
 }

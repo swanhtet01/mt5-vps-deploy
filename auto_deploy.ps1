@@ -1,9 +1,9 @@
-# auto_deploy.ps1 - Polls GitHub main for new commits; re-runs update.ps1 when the deploy
-# scripts change. Runs every 15 min as MT5-AutoDeploy. Silent when nothing changed.
+# auto_deploy.ps1 - Polls GitHub main for a new immutable hotfix manifest commit.
+# Runs every 15 min as MT5-AutoDeploy. Silent when nothing changed.
 #
-# Watches the main-branch HEAD commit SHA (not release tags) so ordinary commits deploy
-# automatically. Sets MT5_AUTODEPLOY=1 so update.ps1 skips its thesis self-test + phone
-# push on auto-runs (no spam). A commit that keeps FAILING is retried a bounded number of
+# Main commits deploy only updater files and manifest-listed, SHA256-verified hotfixes.
+# A full engine refresh still requires a new release bundle. MT5_AUTODEPLOY=1 makes
+# update.ps1 skip its thesis self-test + phone push. A commit that keeps failing is retried a bounded number of
 # times, then parked (and the phone is alerted) until a NEW commit lands - no 15-min churn.
 
 $ErrorActionPreference = 'SilentlyContinue'
@@ -45,7 +45,8 @@ Set-Content $att_file "$sha $attCount" -NoNewline
 Log "New main commit $($sha.Substring(0,8)) (deployed='$last', try $attCount/$MAX_TRIES) - deploying..."
 try {
     $env:MT5_AUTODEPLOY = '1'   # update.ps1 sees this and stays silent (no thesis push)
-    $update = Invoke-WebRequest "https://raw.githubusercontent.com/$gh_repo/main/update.ps1" `
+    $env:MT5_DEPLOY_SHA = $sha   # pin manifest and every hotfix to the commit being deployed
+    $update = Invoke-WebRequest "https://raw.githubusercontent.com/$gh_repo/$sha/update.ps1" `
         -UseBasicParsing -TimeoutSec 30
     Invoke-Expression $update.Content
     Set-Content $sha_file $sha -NoNewline                 # mark success

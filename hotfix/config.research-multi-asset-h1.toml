@@ -1,0 +1,142 @@
+# Paper-only, cost-aware opportunity expansion across liquid H1 markets.
+# Promotion requires a separate walk-forward/time-chamber pass; this file never routes live orders.
+
+mode = "paper"
+poll_seconds = 300
+magic_number = 26060712
+max_positions = 2
+symbols = [
+  "GOLD",
+  "XAUEUR",
+  "US500Cash",
+  "US100Cash",
+  "GER40Cash",
+  "OILCash",
+  "EURUSD",
+  "USDJPY",
+]
+
+[risk]
+risk_per_trade_pct = 2.00
+max_trade_risk_usd = 20.00
+max_daily_loss_pct = 2.00
+max_total_open_risk_pct = 3.00
+max_spread_points = 10000
+min_atr_points = 1
+max_spread_to_stop_ratio = 0.20
+commission_per_lot = 0.0
+entry_slippage_points = 3.0
+stop_slippage_points = 5.0
+
+[live_safety]
+require_confirm_flag = true
+require_env = "MT5_AGENT_LIVE_OK"
+max_order_volume = 0.10
+allowed_symbols = [
+  "GOLD",
+  "XAUEUR",
+  "US500Cash",
+  "US100Cash",
+  "GER40Cash",
+  "OILCash",
+  "EURUSD",
+  "USDJPY",
+]
+max_orders_per_run = 1
+max_positions_per_symbol = 1
+enforce_in_paper = true
+loss_cooldown_minutes = 240
+
+[symbol_risk.GOLD]
+max_spread_points = 100
+min_atr_points = 500
+max_order_volume = 0.01
+downsize_to_max_order_volume = true
+
+[symbol_risk.XAUEUR]
+max_spread_points = 140
+min_atr_points = 400
+max_order_volume = 0.01
+downsize_to_max_order_volume = true
+
+[symbol_risk.US500Cash]
+max_spread_points = 120
+min_atr_points = 500
+max_order_volume = 0.10
+downsize_to_max_order_volume = true
+
+[symbol_risk.US100Cash]
+max_spread_points = 400
+min_atr_points = 3000
+max_order_volume = 0.10
+downsize_to_max_order_volume = true
+
+[symbol_risk.GER40Cash]
+max_spread_points = 400
+min_atr_points = 2000
+max_order_volume = 0.10
+downsize_to_max_order_volume = true
+
+[symbol_risk.OILCash]
+max_spread_points = 30
+min_atr_points = 30
+max_order_volume = 0.01
+downsize_to_max_order_volume = true
+
+[symbol_risk.EURUSD]
+max_spread_points = 40
+min_atr_points = 40
+max_order_volume = 0.01
+downsize_to_max_order_volume = true
+
+[symbol_risk.USDJPY]
+max_spread_points = 90
+min_atr_points = 60
+max_order_volume = 0.01
+downsize_to_max_order_volume = true
+
+[strategy]
+entry_mode = "breakout"
+timeframe = "H1"
+bars = 400
+fast_ema = 20
+slow_ema = 100
+atr_period = 20
+breakout_lookback = 55
+atr_stop_multiple = 0.8
+risk_reward = 2.2
+min_confidence = 0.58
+regime_timeframe = "H4"
+regime_bars = 300
+confirm_regime = true
+rsi_period = 14
+max_buy_rsi = 82
+min_sell_rsi = 18
+max_entry_atr_extension = 2.5
+min_ema_gap_atr = 0.05
+min_adx = 15.0
+min_candle_body_ratio = 0.20
+close_location_ratio = 0.35
+
+[trade_management]
+enabled = true
+break_even_trigger_r = 1.0
+break_even_lock_r = 0.05
+trail_trigger_r = 1.6
+trail_lock_r = 0.5
+trail_gap_r = 0.8
+
+[session]
+trade_monday = true
+trade_tuesday = true
+trade_wednesday = true
+trade_thursday = true
+trade_friday = true
+trade_saturday = false
+trade_sunday = false
+
+[news]
+enabled = true
+state_path = "data_cache/news_state.json"
+sentiment_threshold = 0.65
+fade_strategy = false

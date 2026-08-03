@@ -25,10 +25,15 @@ import sys
 import urllib.error
 import urllib.request
 from collections import defaultdict
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 
 import MetaTrader5 as mt5
+
+from mt5_agent.mt5_execution import (
+    coherent_feed_clock_from_mt5,
+    history_window_from_feed_clock,
+)
 
 DEFAULT_TOPIC = "swann-mt5-trading-private-XYZ"   # CHANGE THIS to your own random topic name
 NTFY_BASE = "https://ntfy.sh"
@@ -99,8 +104,13 @@ def build_daily_summary() -> tuple[str, str]:
         ai = mt5.account_info()
         positions = mt5.positions_get() or []
         now = datetime.now(tz=timezone.utc)
-        day_start = datetime.combine(now.date(), datetime.min.time(), tzinfo=timezone.utc)
-        deals = mt5.history_deals_get(day_start, now + timedelta(minutes=1)) or []
+        _, clock = coherent_feed_clock_from_mt5(
+            mt5,
+            ("BTCUSD", "GOLD", "USDJPY"),
+            host_utc=now,
+        )
+        window = history_window_from_feed_clock(clock, start_of_feed_day=True)
+        deals = mt5.history_deals_get(window.start, window.end) or []
         by_pos = defaultdict(list)
         for d in deals:
             by_pos[d.position_id].append(d)
@@ -109,7 +119,10 @@ def build_daily_summary() -> tuple[str, str]:
             ds = sorted(ds, key=lambda x: x.time)
             if len(ds) < 2:
                 continue
-            net = sum(d.profit + d.commission + d.swap for d in ds)
+            net = sum(
+                d.profit + d.commission + d.swap + float(getattr(d, "fee", 0.0) or 0.0)
+                for d in ds
+            )
             today_trades.append({"symbol": ds[0].symbol, "magic": ds[0].magic, "net": net})
         n = len(today_trades)
         wins = sum(1 for t in today_trades if t["net"] > 0)

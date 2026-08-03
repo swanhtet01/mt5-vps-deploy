@@ -1,7 +1,7 @@
-# update.ps1 - refresh the VPS bot code + turn on XM-style phone alerts. RE-RUNNABLE.
+# update.ps1 - refresh the VPS bot code from a hash-verified manifest. RE-RUNNABLE.
 # Run on the VPS (admin PowerShell):  irm is.gd/mt5update | iex
-# Pulls the latest code, refreshes it in place (does NOT touch your scheduled trade tasks),
-# and adds the position-monitor alert task. Safe to run again any time to get newer code.
+# The structural-task migration disables legacy host-clock entry tasks, retains exits as a
+# backstop, and installs one hidden feed-clock scheduler in paper mode.
 
 $ErrorActionPreference = 'Stop'
 Write-Host ''
@@ -14,36 +14,95 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
 $deploy = 'C:\mt5-deploy'
 $repo   = 'C:\trading-agent'
 $py     = 'C:\mt5-venv\Scripts\python.exe'
+$ghRepo = 'swanhtet01/mt5-vps-deploy'
 New-Item -ItemType Directory -Path $deploy -Force | Out-Null
 
-# 0) HIGHEST PRIORITY - re-arm live trading + sync the script hotfixes FIRST, each wrapped so
-#    nothing later can abort them. These are the money-critical actions; the bundle refresh
-#    below is best-effort. (A previous version put these after the bundle download, so a web
-#    hiccup at $ErrorActionPreference='Stop' silently skipped the re-arm entirely.)
-try {
-    $rt = (Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/rearm.token' `
-        -UseBasicParsing -TimeoutSec 15).Content.Trim()
-    $rtApplied = if (Test-Path "$deploy\last_rearm.txt") { (Get-Content "$deploy\last_rearm.txt" -Raw).Trim() } else { '' }
-    if ($rt -and $rt -ne $rtApplied) {
-        [Environment]::SetEnvironmentVariable('MT5_GOLD_DRIFT_LIVE', '1', 'User')
-        Set-Content "$deploy\last_rearm.txt" $rt -NoNewline
-        Write-Host "  [0] LIVE RE-ARMED (token: $rt)" -ForegroundColor Green
-        # ONE-TIME confirmation ping (fires only when a NEW token actually re-arms) so the
-        # re-arm is visible + confirms the deploy pipeline is alive. Not spam: once per token.
-        try {
-            $env:NTFY_TOPIC = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
-            if (-not $env:NTFY_TOPIC) { $env:NTFY_TOPIC = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','Machine') }
-            & $py "$repo\scripts\notify.py" "Bot RE-ARMED and live again (deploy confirmed). Kill-switch recalibrated to -65/7d so it stops false-tripping on normal swings." 2>$null
-        } catch {}
-    } else { Write-Host '  [0] re-arm token unchanged (no-op)' -ForegroundColor DarkGray }
-} catch { Write-Host '  [0] rearm check skipped (non-fatal)' -ForegroundColor DarkGray }
-foreach ($hf in @('vps_health.py', 'killswitch_monitor.py')) {
-    try {
-        Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$hf" `
-            -OutFile "$repo\scripts\$hf" -UseBasicParsing -TimeoutSec 20
-        Write-Host "  [0] hotfix synced: $hf" -ForegroundColor Green
-    } catch { Write-Host "  [0] hotfix $hf skipped (non-fatal)" -ForegroundColor DarkGray }
+function New-HiddenTaskAction {
+    param(
+        [Parameter(Mandatory=$true)][string]$Name,
+        [Parameter(Mandatory=$true)][string]$Body
+    )
+    $launcherRoot = 'C:\mt5-paper\launchers'
+    New-Item -ItemType Directory -Path $launcherRoot -Force | Out-Null
+    $safeName = $Name -replace '[^A-Za-z0-9_-]', '-'
+    $psPath = Join-Path $launcherRoot "$safeName.ps1"
+    $vbsPath = Join-Path $launcherRoot "$safeName.vbs"
+    [System.IO.File]::WriteAllText($psPath, $Body, (New-Object System.Text.UTF8Encoding($false)))
+    $escapedPsPath = $psPath.Replace('"', '""')
+    $vbsBody = @"
+Set shell = CreateObject("WScript.Shell")
+result = shell.Run("powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File ""$escapedPsPath""", 0, True)
+WScript.Quit result
+"@
+    [System.IO.File]::WriteAllText($vbsPath, $vbsBody, (New-Object System.Text.ASCIIEncoding))
+    return "wscript.exe `"$vbsPath`""
 }
+
+function Set-MT5TaskReliability {
+    param(
+        [Parameter(Mandatory=$true)][string]$TaskName,
+        [int]$ExecutionMinutes = 30
+    )
+    try {
+        $settings = New-ScheduledTaskSettingsSet -Hidden -MultipleInstances IgnoreNew `
+            -StartWhenAvailable -RestartCount 2 -RestartInterval (New-TimeSpan -Minutes 2) `
+            -ExecutionTimeLimit (New-TimeSpan -Minutes ([Math]::Max($ExecutionMinutes, 1))) `
+            -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+        Set-ScheduledTask -TaskName $TaskName -Settings $settings | Out-Null
+    } catch {
+        Write-Host "  WARN: could not harden task settings for $TaskName" -ForegroundColor Yellow
+    }
+}
+
+# Resolve one immutable commit. Auto-deploy supplies this; interactive updates resolve main.
+$deployRef = $env:MT5_DEPLOY_SHA
+if ($deployRef -notmatch '^[0-9a-fA-F]{40}$') {
+    $commit = Invoke-WebRequest "https://api.github.com/repos/$ghRepo/commits/main" `
+        -UseBasicParsing -TimeoutSec 20 -Headers @{Accept='application/vnd.github.v3+json'}
+    $deployRef = ($commit.Content | ConvertFrom-Json).sha
+}
+if ($deployRef -notmatch '^[0-9a-fA-F]{40}$') {
+    throw 'Could not resolve an immutable deploy commit.'
+}
+$rawBase = "https://raw.githubusercontent.com/$ghRepo/$deployRef"
+
+function Sync-Hotfixes {
+    $manifestResponse = Invoke-WebRequest "$rawBase/hotfix-manifest.json" `
+        -UseBasicParsing -TimeoutSec 20 -Headers @{'Cache-Control'='no-cache'}
+    $manifest = $manifestResponse.Content | ConvertFrom-Json
+    if ($manifest.schema_version -ne 1 -or -not $manifest.files) {
+        throw 'Invalid or empty hotfix manifest.'
+    }
+    $repoPrefix = [IO.Path]::GetFullPath($repo.TrimEnd('\') + '\')
+    foreach ($entry in $manifest.files) {
+        $source = [string]$entry.source
+        $relative = ([string]$entry.destination) -replace '/', '\'
+        $expected = ([string]$entry.sha256).ToLowerInvariant()
+        if (-not $source -or $source.Contains('..') -or [IO.Path]::IsPathRooted($source)) {
+            throw "Unsafe manifest source: $source"
+        }
+        $destination = [IO.Path]::GetFullPath((Join-Path $repo $relative))
+        if (-not $destination.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "Unsafe manifest destination: $relative"
+        }
+        New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
+        $temp = "$destination.$PID.download"
+        try {
+            Invoke-WebRequest "$rawBase/$source" -OutFile $temp -UseBasicParsing -TimeoutSec 30
+            $actual = (Get-FileHash $temp -Algorithm SHA256).Hash.ToLowerInvariant()
+            if ($actual -ne $expected) {
+                throw "SHA256 mismatch for $source"
+            }
+            Move-Item $temp $destination -Force
+            Write-Host "  [0] verified hotfix: $relative" -ForegroundColor Green
+        } finally {
+            Remove-Item $temp -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
+# A GitHub token can no longer re-arm real trading. Deployment only installs code.
+Sync-Hotfixes
 
 # 1) latest bundle - best-effort. If the download/extract fails, we KEEP the existing (already
 #    verified) money-path code rather than copying from a bad bundle. $bundleOk gates the copy.
@@ -59,43 +118,70 @@ try {
     Invoke-WebRequest $bundleUrl -OutFile "$deploy\mt5-bundle.zip" -UseBasicParsing -TimeoutSec 120
     Expand-Archive "$deploy\mt5-bundle.zip" -DestinationPath $deploy -Force
     $bundleOk = (Test-Path "$deploy\trading-agent\scripts")
-    Write-Host '  [1] latest code downloaded' -ForegroundColor Green
+    Write-Host '  [1] latest release bundle downloaded' -ForegroundColor Green
 } catch { Write-Host '  [1] bundle download/extract failed - keeping existing code (non-fatal)' -ForegroundColor Yellow }
 
 # 2) refresh money-path code ONLY from a cleanly-extracted bundle. robocopy exit >=8 = real
-#    error -> WARN (don't abort; the hotfixes + re-arm above already applied).
+#    error -> WARN; the commit-pinned hotfixes above already applied.
 if ($bundleOk) {
     robocopy "$deploy\trading-agent\scripts" "$repo\scripts" /E /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { Write-Host '  WARN: robocopy scripts had errors (continuing)' -ForegroundColor Yellow }
     robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { Write-Host '  WARN: robocopy src had errors (continuing)' -ForegroundColor Yellow }
-    # Re-apply the hotfixes AFTER robocopy (which restores the bundle's older copies over them).
-    foreach ($hf in @('vps_health.py', 'killswitch_monitor.py')) {
-        try {
-            Invoke-WebRequest "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/$hf" `
-                -OutFile "$repo\scripts\$hf" -UseBasicParsing -TimeoutSec 20
-        } catch {}
-    }
+    # Re-apply verified files after the old release bundle has copied over the tree.
+    Sync-Hotfixes
 }
-Write-Host '  [2] scripts + engine refreshed (hotfixes applied in step 0)' -ForegroundColor Green
+Write-Host "  [2] release bundle refreshed where available; commit $($deployRef.Substring(0,8)) hotfixes verified" -ForegroundColor Green
 
 # 2b) ensure runtime deps in the venv. WARN (don't abort) so a transient pip/network hiccup
-# can't block the rest of a deploy - the re-arm + hotfixes already applied in step 0.
-& $py -m pip install --quiet anthropic yfinance numpy psutil
+# cannot block the rest of a deploy; the verified hotfixes already applied in step 0.
+& $py -m pip install --quiet anthropic yfinance numpy pandas psutil
 if ($LASTEXITCODE) { Write-Host '  WARN: pip install had errors (continuing)' -ForegroundColor Yellow }
-else { Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, psutil)' -ForegroundColor Green }
+else { Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, pandas, psutil)' -ForegroundColor Green }
 
 # 2c) mirror NTFY_TOPIC to Machine scope so SYSTEM-context tasks (e.g. a boot alert) can
 #     also push to the phone, and so notify.py's registry fallback always finds it.
 $ntfyUser = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
 if ($ntfyUser) { [Environment]::SetEnvironmentVariable('NTFY_TOPIC', $ntfyUser, 'Machine') }
 
+# 2d) Replace host-clock structural entry tasks. Those tasks interpreted UTC as the broker
+# H1 clock and traded the wrong buckets. Legacy exits stay enabled as a backstop during the
+# paper migration. The new scheduler runs hidden every five minutes and remains paper-only
+# unless its separate live flag AND per-magic allowlist exist.
+$legacyStructuralTasks = @(
+    'MT5-GoldDrift-Live-Enter',
+    'MT5-USDJPY-Mon-Enter',
+    'MT5-UK100-Thu-Enter',
+    'MT5-GOLD-Fri-Enter',
+    'MT5-USDJPY-Wed-Enter',
+    'MT5-GOLD-Thu-Enter',
+    'MT5-AUDJPY-Mon-Enter',
+    'MT5-GBPJPY-Thu-Enter',
+    'MT5-GOLD-Tue-Enter'
+)
+foreach ($taskName in $legacyStructuralTasks) {
+    schtasks /change /tn $taskName /disable 2>$null | Out-Null
+}
+$schedulerPs = 'C:\mt5-paper\structural-scheduler.ps1'
+$schedulerBody = @"
+`$env:MT5_REPO = '$repo'
+`$env:MT5_STRUCTURAL_FORCE_PAPER_ONLY = '1'
+& '$py' '$repo\scripts\structural_scheduler.py' 2>&1 | Out-File -FilePath 'C:\mt5-paper\analytics\structural-scheduler-task.log' -Append -Encoding utf8
+exit `$LASTEXITCODE
+"@
+[System.IO.File]::WriteAllText($schedulerPs, $schedulerBody, (New-Object System.Text.UTF8Encoding($false)))
+$schedulerAction = New-HiddenTaskAction -Name 'structural-scheduler' -Body $schedulerBody
+schtasks /create /tn 'MT5-StructuralScheduler' /tr $schedulerAction /sc minute /mo 5 /it /f | Out-Null
+if ($LASTEXITCODE) { throw 'MT5-StructuralScheduler task registration failed.' }
+Set-MT5TaskReliability -TaskName 'MT5-StructuralScheduler' -ExecutionMinutes 4
+Write-Host '  [2d] legacy entries disabled, exits retained; hidden broker-clock scheduler installed PAPER-ONLY' -ForegroundColor Green
+
 # 3) position-monitor task -> phone alert on every trade open/close (every 5 min)
-$cmd = 'C:\mt5-paper\position-monitor-tick.cmd'
 New-Item -ItemType Directory -Path 'C:\mt5-paper\analytics' -Force | Out-Null
-$body = "@echo off`r`n`"$py`" `"$repo\scripts\position_monitor.py`" >> `"C:\mt5-paper\analytics\position-monitor.log`" 2>&1"
-[System.IO.File]::WriteAllText($cmd, $body, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-PositionMonitor' /tr $cmd /sc minute /mo 5 /it /f | Out-Null
+$body = "& '$py' '$repo\scripts\position_monitor.py' *>> 'C:\mt5-paper\analytics\position-monitor.log'`r`nexit `$LASTEXITCODE"
+$action = New-HiddenTaskAction -Name 'position-monitor' -Body $body
+schtasks /create /tn 'MT5-PositionMonitor' /tr $action /sc minute /mo 5 /it /f | Out-Null
+Set-MT5TaskReliability -TaskName 'MT5-PositionMonitor' -ExecutionMinutes 4
 Write-Host '  [3] MT5-PositionMonitor scheduled (alerts every 5 min)' -ForegroundColor Green
 
 # 4) seed alerts silently + apply remote control once
@@ -103,57 +189,53 @@ Write-Host '  [3] MT5-PositionMonitor scheduled (alerts every 5 min)' -Foregroun
 & $py "$repo\scripts\remote_control.py" 2>&1 | Out-Null
 Write-Host '  [4] alerts seeded + remote control applied' -ForegroundColor Green
 
-# 5) auto-deploy task - VPS polls GitHub releases every 15 min and self-updates
+# 5) auto-deploy task - VPS polls GitHub main every 15 min and applies the immutable,
+# hash-verified hotfix manifest. Full engine refreshes still require a new release asset.
 $adScript = "$deploy\auto_deploy.ps1"
-Invoke-WebRequest 'https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/auto_deploy.ps1' `
+Invoke-WebRequest "$rawBase/auto_deploy.ps1" `
     -OutFile $adScript -UseBasicParsing -TimeoutSec 30
-$adCmd = "C:\mt5-paper\auto-deploy.cmd"
-$adBody = "@echo off`r`npowershell -ExecutionPolicy Bypass -File `"$adScript`" >> `"C:\mt5-paper\analytics\auto-deploy.log`" 2>&1"
-[System.IO.File]::WriteAllText($adCmd, $adBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-AutoDeploy' /tr $adCmd /sc minute /mo 15 /it /f | Out-Null
-# Seed the current main commit SHA so the first auto-deploy poll doesn't immediately re-run.
-try {
-    $c = Invoke-WebRequest 'https://api.github.com/repos/swanhtet01/mt5-vps-deploy/commits/main' `
-        -UseBasicParsing -TimeoutSec 15 -Headers @{Accept='application/vnd.github.v3+json'}
-    $curSha = ($c.Content | ConvertFrom-Json).sha
-    if ($curSha) { Set-Content "$deploy\last_deploy_sha.txt" $curSha -NoNewline }
-} catch { Write-Host '  (could not seed deploy SHA; auto-deploy will deploy once on next poll)' -ForegroundColor DarkGray }
-Write-Host '  [5] MT5-AutoDeploy scheduled (watches main commits every 15 min)' -ForegroundColor Green
+$adBody = "& '$adScript' *>> 'C:\mt5-paper\analytics\auto-deploy.log'`r`nexit `$LASTEXITCODE"
+$adAction = New-HiddenTaskAction -Name 'auto-deploy' -Body $adBody
+schtasks /create /tn 'MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /it /f | Out-Null
+Set-MT5TaskReliability -TaskName 'MT5-AutoDeploy' -ExecutionMinutes 12
+Set-Content "$deploy\last_deploy_sha.txt" $deployRef -NoNewline
+Write-Host '  [5] MT5-AutoDeploy scheduled (verified hotfix commits every 15 min)' -ForegroundColor Green
 
-# NOTE: this VPS runs on Myanmar time (UTC+6:30) - confirmed by the live-enter task firing
-# at 06:30 local = 00:00 UTC. schtasks /st uses LOCAL time, so add 6:30 to the desired UTC.
+# NOTE: non-trading maintenance tasks still use the VPS Myanmar clock (UTC+6:30).
+# Structural entries no longer use this conversion; MT5-StructuralScheduler reads broker time.
 #   06:00 UTC -> 12:30 local ; 06:30 UTC -> 13:00 local ; 08:00 UTC -> 14:30 local
 
 # 6) symbol scanner task - Sundays 08:00 UTC (= 14:30 local) to discover new edges
-$scanCmd = "C:\mt5-paper\symbol-scanner.cmd"
-$scanBody = "@echo off`r`n`"$py`" `"$repo\scripts\multi_symbol_scanner.py`" --symbols SPY,TLT,QQQ,CL,GC --timeframes 1h,4h --parallel 5 >> `"C:\mt5-paper\analytics\scanner.log`" 2>&1"
-[System.IO.File]::WriteAllText($scanCmd, $scanBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-SymbolScanner' /tr $scanCmd /sc weekly /d SUN /st 14:30 /it /f | Out-Null
+$scanBody = "& '$py' '$repo\scripts\multi_symbol_scanner.py' --symbols SPY,TLT,QQQ,CL,GC --timeframes 1h,4h --parallel 2 *>> 'C:\mt5-paper\analytics\scanner.log'`r`nexit `$LASTEXITCODE"
+$scanAction = New-HiddenTaskAction -Name 'symbol-scanner' -Body $scanBody
+schtasks /create /tn 'MT5-SymbolScanner' /tr $scanAction /sc weekly /d SUN /st 14:30 /it /f | Out-Null
+Set-MT5TaskReliability -TaskName 'MT5-SymbolScanner' -ExecutionMinutes 120
 Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundColor Green
 
-# 6b) THE DAILY THESIS PIPELINE, correctly ordered. It must run BEFORE the day's first
-# gold entry (00:00 UTC = 06:30 local) so sizing is fresh, not ~18h stale, and so the
-# thesis reads REAL data (context_ingest writes news/macro/context first) instead of
+# 6b) THE DAILY THESIS PIPELINE, correctly ordered. It must run before broker midnight
+# (currently 03:30 Myanmar time in broker summer time, 04:30 in winter) so sizing is fresh.
+# The early schedule covers both offsets and ensures the thesis reads REAL data
+# (context_ingest writes news/macro/context first) instead of
 # empty defaults. Sequence (local time = UTC+6:30):
-#   04:30 local (22:00 UTC) context_ingest -> 05:00 (22:30) thesis -> 05:30 (23:00) apply
-$ciCmd = 'C:\mt5-paper\context-ingest.cmd'
-$ciBody = "@echo off`r`n`"$py`" `"$repo\scripts\context_ingest.py`" --data-cache-dir `"$repo\data_cache`" >> `"C:\mt5-paper\analytics\context.log`" 2>&1"
-[System.IO.File]::WriteAllText($ciCmd, $ciBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-ContextIngest' /tr $ciCmd /sc daily /st 04:30 /it /f | Out-Null
+#   01:30 context_ingest -> 02:00 thesis -> 02:30 apply
+$ciBody = "& '$py' '$repo\scripts\context_ingest.py' --data-cache-dir '$repo\data_cache' *>> 'C:\mt5-paper\analytics\context.log'`r`nexit `$LASTEXITCODE"
+$ciAction = New-HiddenTaskAction -Name 'context-ingest' -Body $ciBody
+schtasks /create /tn 'MT5-ContextIngest' /tr $ciAction /sc daily /st 01:30 /it /f | Out-Null
 if ($LASTEXITCODE) { Write-Host '  WARN: MT5-ContextIngest create failed (continuing)' -ForegroundColor Yellow }
-$thCmd = 'C:\mt5-paper\llm-thesis.cmd'
-$thBody = "@echo off`r`n`"$py`" `"$repo\scripts\thesis_ingest.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
-[System.IO.File]::WriteAllText($thCmd, $thBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-LLMThesis' /tr $thCmd /sc daily /st 05:00 /it /f | Out-Null
+Set-MT5TaskReliability -TaskName 'MT5-ContextIngest' -ExecutionMinutes 20
+$thBody = "& '$py' '$repo\scripts\thesis_ingest.py' *>> 'C:\mt5-paper\analytics\thesis.log'`r`nexit `$LASTEXITCODE"
+$thAction = New-HiddenTaskAction -Name 'llm-thesis' -Body $thBody
+schtasks /create /tn 'MT5-LLMThesis' /tr $thAction /sc daily /st 02:00 /it /f | Out-Null
 if ($LASTEXITCODE) { Write-Host '  WARN: MT5-LLMThesis create failed (continuing)' -ForegroundColor Yellow }
-$apCmd = 'C:\mt5-paper\apply-thesis.cmd'
-$apBody = "@echo off`r`n`"$py`" `"$repo\scripts\apply_approved_thesis.py`" >> `"C:\mt5-paper\analytics\thesis.log`" 2>&1"
-[System.IO.File]::WriteAllText($apCmd, $apBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-ApplyThesis' /tr $apCmd /sc daily /st 05:30 /it /f | Out-Null
+Set-MT5TaskReliability -TaskName 'MT5-LLMThesis' -ExecutionMinutes 25
+$apBody = "& '$py' '$repo\scripts\apply_approved_thesis.py' *>> 'C:\mt5-paper\analytics\thesis.log'`r`nexit `$LASTEXITCODE"
+$apAction = New-HiddenTaskAction -Name 'apply-thesis' -Body $apBody
+schtasks /create /tn 'MT5-ApplyThesis' /tr $apAction /sc daily /st 02:30 /it /f | Out-Null
 if ($LASTEXITCODE) { Write-Host '  WARN: MT5-ApplyThesis create failed (continuing)' -ForegroundColor Yellow }
+Set-MT5TaskReliability -TaskName 'MT5-ApplyThesis' -ExecutionMinutes 15
 # Defensive: ensure the kill-switch (cumulative-drawdown brake) is ENABLED, not just present.
 schtasks /change /tn 'MT5-GoldDrift-KillSwitch' /enable 2>$null | Out-Null
-Write-Host '  [6b] context-ingest + thesis + apply scheduled (22:00/22:30/23:00 UTC, pre-entry); kill-switch enabled' -ForegroundColor Green
+Write-Host '  [6b] context-ingest + thesis + apply scheduled before broker midnight; kill-switch enabled' -ForegroundColor Green
 
 # 6c) Reboot-survival backstop: a SYSTEM task that pings the phone on boot so a restart
 # (Windows Update, host maintenance) is VISIBLE. With auto-logon set up (recommended),
@@ -170,11 +252,115 @@ if ($t) {
 }
 '@
 [System.IO.File]::WriteAllText($bootPs, $bootPsBody, (New-Object System.Text.ASCIIEncoding))
-$bootCmd = 'C:\mt5-paper\boot-alert.cmd'
-$bootCmdBody = "@echo off`r`npowershell -ExecutionPolicy Bypass -File `"$bootPs`""
-[System.IO.File]::WriteAllText($bootCmd, $bootCmdBody, (New-Object System.Text.ASCIIEncoding))
-schtasks /create /tn 'MT5-BootAlert' /tr $bootCmd /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
+$bootAction = "powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File `"$bootPs`""
+schtasks /create /tn 'MT5-BootAlert' /tr $bootAction /sc onstart /ru SYSTEM /rl HIGHEST /f | Out-Null
+Set-MT5TaskReliability -TaskName 'MT5-BootAlert' -ExecutionMinutes 5
 Write-Host '  [6c] MT5-BootAlert scheduled (phone ping on reboot)' -ForegroundColor Green
+
+# 6d) Bounded maintenance keeps append-only logs and research bundles from exhausting disk.
+$maintenanceBody = "& '$py' '$repo\scripts\vps_maintenance.py' *>> 'C:\mt5-paper\analytics\maintenance.log'`r`nexit `$LASTEXITCODE"
+$maintenanceAction = New-HiddenTaskAction -Name 'maintenance' -Body $maintenanceBody
+schtasks /create /tn 'MT5-Maintenance' /tr $maintenanceAction /sc daily /st 03:00 /it /f | Out-Null
+if ($LASTEXITCODE) { Write-Host '  WARN: MT5-Maintenance create failed (continuing)' -ForegroundColor Yellow }
+Set-MT5TaskReliability -TaskName 'MT5-Maintenance' -ExecutionMinutes 20
+Write-Host '  [6d] hidden bounded log/export maintenance scheduled daily' -ForegroundColor Green
+
+# 6e) Pinned Vibe sidecar. The deterministic loader/report runs daily without a
+# provider; the bounded language-model research pass runs weekly only when its DPAPI
+# secret exists. Both are isolated, globally HALTed, and research-only.
+$vibeRunner = "$repo\scripts\run-vibe-research.ps1"
+$vibeSetup = "$repo\scripts\setup-vibe-research.ps1"
+$vibePython = 'C:\mt5-vibe-research\.venv\Scripts\python.exe'
+$auditedVibeCommit = '652917e74e2b2e1f767ef596623bae7f098a53c4'
+$vibeInstallPath = 'C:\mt5-vibe-research\install.json'
+if ((Test-Path $vibeRunner) -and (Test-Path $vibeSetup)) {
+    $vibeInstall = if (Test-Path $vibeInstallPath) {
+        Get-Content $vibeInstallPath -Raw | ConvertFrom-Json
+    } else { $null }
+    if ((-not (Test-Path $vibePython)) -or (-not $vibeInstall) -or $vibeInstall.commit -ne $auditedVibeCommit) {
+        $vibeProvider = if ($vibeInstall -and $vibeInstall.provider_extra -eq 'anthropic') { 'anthropic' } else { 'none' }
+        try {
+            & powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden `
+                -ExecutionPolicy Bypass -File $vibeSetup -SidecarRoot 'C:\mt5-vibe-research' `
+                -Provider $vibeProvider -SkipTaskRegistration
+            if ($LASTEXITCODE) { throw "sidecar setup exited $LASTEXITCODE" }
+            Write-Host "  [6e] Vibe sidecar upgraded to audited commit $($auditedVibeCommit.Substring(0,8))" -ForegroundColor Green
+        } catch {
+            Write-Host "  WARN: Vibe sidecar upgrade failed; research/shadow entries remain blocked: $_" -ForegroundColor Yellow
+        }
+    }
+    $vibeInstall = if (Test-Path $vibeInstallPath) {
+        Get-Content $vibeInstallPath -Raw | ConvertFrom-Json
+    } else { $null }
+    $vibeReady = (
+        (Test-Path $vibePython) -and
+        (Test-Path 'C:\mt5-vibe-research\live\HALT') -and
+        $vibeInstall -and
+        $vibeInstall.commit -eq $auditedVibeCommit -and
+        $vibeInstall.order_authority -eq $false
+    )
+    if (-not $vibeReady) {
+        schtasks /delete /tn 'MT5-VibeBaseline' /f 2>$null | Out-Null
+        schtasks /delete /tn 'MT5-VibeResearch' /f 2>$null | Out-Null
+        schtasks /delete /tn 'MT5-VibeShadow' /f 2>$null | Out-Null
+        Write-Host '  WARN: Vibe sidecar did not pass its pinned HALT boundary; tasks remain removed' -ForegroundColor Yellow
+    } else {
+    $vibeBaselineBody = "`$env:MT5_PYTHON='$py'`r`n& '$vibeRunner' -SidecarRoot 'C:\mt5-vibe-research' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 30 -SkipAgent *>> 'C:\mt5-paper\analytics\vibe-baseline.log'`r`nexit `$LASTEXITCODE"
+    $vibeBaselineAction = New-HiddenTaskAction -Name 'vibe-baseline' -Body $vibeBaselineBody
+    schtasks /create /tn 'MT5-VibeBaseline' /tr $vibeBaselineAction /sc daily /st 04:00 /it /f | Out-Null
+    if ($LASTEXITCODE) { Write-Host '  WARN: MT5-VibeBaseline create failed (continuing)' -ForegroundColor Yellow }
+    Set-MT5TaskReliability -TaskName 'MT5-VibeBaseline' -ExecutionMinutes 35
+    $vibeBody = "& '$vibeRunner' -SidecarRoot 'C:\mt5-vibe-research' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 60 *>> 'C:\mt5-paper\analytics\vibe-research.log'`r`nexit `$LASTEXITCODE"
+    $vibeAction = New-HiddenTaskAction -Name 'vibe-research' -Body $vibeBody
+    schtasks /create /tn 'MT5-VibeResearch' /tr $vibeAction /sc weekly /d SUN /st 15:30 /it /f | Out-Null
+    if ($LASTEXITCODE) { Write-Host '  WARN: MT5-VibeResearch create failed (continuing)' -ForegroundColor Yellow }
+    Set-MT5TaskReliability -TaskName 'MT5-VibeResearch' -ExecutionMinutes 70
+    $vibeShadowRunner = "$repo\scripts\run-vibe-shadow-once.ps1"
+    if (Test-Path $vibeShadowRunner) {
+        $vibeShadowBody = "`$env:MT5_PYTHON='$py'`r`n& '$vibeShadowRunner' -SidecarRoot 'C:\mt5-vibe-research' *>> 'C:\mt5-paper\analytics\vibe-shadow-launcher.log'`r`nexit `$LASTEXITCODE"
+        $vibeShadowAction = New-HiddenTaskAction -Name 'vibe-shadow' -Body $vibeShadowBody
+        schtasks /create /tn 'MT5-VibeShadow' /tr $vibeShadowAction /sc minute /mo 5 /it /f | Out-Null
+        if ($LASTEXITCODE) { Write-Host '  WARN: MT5-VibeShadow create failed (continuing)' -ForegroundColor Yellow }
+        Set-MT5TaskReliability -TaskName 'MT5-VibeShadow' -ExecutionMinutes 4
+    }
+    Write-Host '  [6e] Vibe baseline daily + research weekly + quote-only shadow every five minutes' -ForegroundColor Green
+    Start-ScheduledTask -TaskName 'MT5-VibeBaseline' -ErrorAction SilentlyContinue
+    }
+} else {
+    schtasks /delete /tn 'MT5-VibeBaseline' /f 2>$null | Out-Null
+    schtasks /delete /tn 'MT5-VibeResearch' /f 2>$null | Out-Null
+    schtasks /delete /tn 'MT5-VibeShadow' /f 2>$null | Out-Null
+    Write-Host '  [6e] Vibe task not installed; run setup-vibe-research.ps1 on the VPS first' -ForegroundColor DarkGray
+}
+
+# 6f) Closed-profit sizing refresh. This task only reads MT5 history and writes
+# evidence/correlation artifacts. Process-local flags force every trading path
+# to paper mode, and the runner contains no order call.
+$profitScalingRunner = "$repo\scripts\run-profit-funded-scaling-once.ps1"
+if (Test-Path $profitScalingRunner) {
+    $profitScalingBody = @"
+`$env:MT5_GOLD_DRIFT_LIVE = '0'
+`$env:MT5_STRUCTURAL_SCHEDULER_LIVE = '0'
+`$env:MT5_STRUCTURAL_FORCE_PAPER_ONLY = '1'
+`$env:MT5_VIBE_SHADOW_FORCE_PAPER_ONLY = '1'
+`$env:MT5_PYTHON = '$py'
+& '$profitScalingRunner' *>> 'C:\mt5-paper\analytics\profit-funded-scaling-launcher.log'
+exit `$LASTEXITCODE
+"@
+    $profitScalingAction = New-HiddenTaskAction -Name 'profit-funded-scaling' -Body $profitScalingBody
+    schtasks /create /tn 'MT5-ProfitFundedScaling' /tr $profitScalingAction /sc minute /mo 60 /it /f | Out-Null
+    if ($LASTEXITCODE) { throw 'MT5-ProfitFundedScaling task registration failed.' }
+    Set-MT5TaskReliability -TaskName 'MT5-ProfitFundedScaling' -ExecutionMinutes 10
+    & powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden `
+        -ExecutionPolicy Bypass -File $profitScalingRunner 2>&1 | Out-Null
+    if ($LASTEXITCODE) {
+        Write-Host '  WARN: initial profit-funded sizing refresh failed; hourly task will retry' -ForegroundColor Yellow
+    } else {
+        Write-Host '  [6f] hidden closed-profit sizing refresh installed hourly; current artifact refreshed' -ForegroundColor Green
+    }
+} else {
+    Write-Host '  WARN: profit-funded sizing runner missing; no scaling task installed' -ForegroundColor Yellow
+}
 
 # 7) LLM thesis self-test - verify the Claude API key + model work end-to-end.
 #    Skipped on auto-deploy runs (MT5_AUTODEPLOY=1) so a code deploy never pushes a
@@ -220,7 +406,10 @@ if (-not $env:MT5_AUTODEPLOY) {
 
 Write-Host ''
 Write-Host '==== UPDATE COMPLETE ====' -ForegroundColor Green
-Write-Host '  - Auto-deploy: VPS now self-updates when you push a new GitHub release'
+Write-Host '  - Auto-deploy: manifest-listed hotfixes update on main; full engine needs a release'
+Write-Host '  - Structural scheduler: installed hidden and PAPER-ONLY until separately approved'
 Write-Host '  - Symbol scanner: runs every Sunday 08:00 UTC (finds new edges automatically)'
+Write-Host '  - Vibe: deterministic research daily; quote-only shadow evidence every five minutes'
+Write-Host '  - Scaling: closed-profit evidence refresh hourly; stale or weak evidence stays at 1x'
 Write-Host '  - LLM thesis: tested live against Claude (see [7] above)'
 Write-Host '  - Trade alerts: fire on real opens/closes only (no spam)'
