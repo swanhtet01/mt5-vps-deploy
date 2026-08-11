@@ -59,56 +59,56 @@ SIGNALS = {
     "USDJPY_MON": dict(
         symbol="USDJPY", weekday=0, entry_hour=0, exit_hour=1,
         research_weekday=0, research_return_hour=1,
-        side="long", magic=88002, sl_usd=15.0, tp_usd=60.0, max_lot=0.01,
+        side="long", magic=88002, sl_usd=75.0, tp_usd=300.0, max_lot=0.05,
         description="USDJPY Monday 00:00-01:00 feed time LONG (return bucket t=+8.12, n=248)",
     ),
     "UK100_THU": dict(
         symbol="UK100Cash", weekday=3, entry_hour=0, exit_hour=1,
         research_weekday=3, research_return_hour=1,
-        side="short", magic=88003, sl_usd=15.0, tp_usd=60.0, max_lot=0.1,
+        side="short", magic=88003, sl_usd=30.0, tp_usd=120.0, max_lot=0.2,
         description="UK100 Thursday 00:00-01:00 feed time SHORT (return bucket t=-5.48, n=268)",
     ),
     "GOLD_FRI": dict(
         symbol="GOLD", weekday=4, entry_hour=22, exit_hour=23,
         research_weekday=4, research_return_hour=23,
-        side="long", magic=88004, sl_usd=30.0, tp_usd=120.0, max_lot=0.01,
+        side="long", magic=88004, sl_usd=150.0, tp_usd=600.0, max_lot=0.05,
         description="GOLD Friday 22:00-23:00 feed time LONG (return bucket t=+5.02, n=234)",
     ),
     "USDJPY_WED": dict(
         symbol="USDJPY", weekday=2, entry_hour=21, exit_hour=22,
         research_weekday=2, research_return_hour=22,
-        side="long", magic=88005, sl_usd=15.0, tp_usd=60.0, max_lot=0.01,
+        side="long", magic=88005, sl_usd=75.0, tp_usd=300.0, max_lot=0.05,
         description="USDJPY Wednesday 21:00-22:00 feed time LONG (strict return bucket)",
     ),
     "GOLD_THU": dict(
         symbol="GOLD", weekday=3, entry_hour=0, exit_hour=1,
         research_weekday=3, research_return_hour=1,
-        side="long", magic=88006, sl_usd=30.0, tp_usd=120.0, max_lot=0.01,
+        side="long", magic=88006, sl_usd=150.0, tp_usd=600.0, max_lot=0.05,
         description="GOLD Thursday 00:00-01:00 feed time LONG (return bucket t=+4.29, n=261)",
     ),
     # NEW edges from wide_edge_hunt (2026-06-23): JPY-cross Monday surge + GBPJPY Thu fade + Tue gold
     "AUDJPY_MON": dict(
         symbol="AUDJPY", weekday=0, entry_hour=0, exit_hour=1,
         research_weekday=0, research_return_hour=1,
-        side="long", magic=88007, sl_usd=12.0, tp_usd=48.0, max_lot=0.01,
+        side="long", magic=88007, sl_usd=60.0, tp_usd=240.0, max_lot=0.05,
         description="AUDJPY Monday 00:00-01:00 feed time LONG (return bucket t=+11.99)",
     ),
     "GBPJPY_THU": dict(
         symbol="GBPJPY", weekday=2, entry_hour=23, exit_hour=0,
         research_weekday=3, research_return_hour=0,
-        side="short", magic=88008, sl_usd=12.0, tp_usd=48.0, max_lot=0.01,
+        side="short", magic=88008, sl_usd=60.0, tp_usd=240.0, max_lot=0.05,
         description="GBPJPY Wednesday 23:00-Thursday 00:00 feed time SHORT (return bucket t=-8.16)",
     ),
     "GOLD_TUE": dict(
         symbol="GOLD", weekday=1, entry_hour=0, exit_hour=1,
         research_weekday=1, research_return_hour=1,
-        side="long", magic=88009, sl_usd=30.0, tp_usd=120.0, max_lot=0.01,
-        description="GOLD Tuesday 00:00-01:00 feed time LONG (return bucket t=+3.31)",
+        side="long", magic=88009, sl_usd=90.0, tp_usd=360.0, max_lot=0.03,
+        description="GOLD Tuesday 00:00-01:00 feed time LONG (return bucket t=+3.31, conservative)",
     ),
 }
 
-MAX_DAILY_LOSS_USD = 20.0
-MAX_PORTFOLIO_DAILY_LOSS_USD = 20.0
+MAX_DAILY_LOSS_USD = 50.0
+MAX_PORTFOLIO_DAILY_LOSS_USD = 80.0
 LOOKBACK = 60
 SIZING_FILE = _SIZING_FILE
 PORTFOLIO_BUDGET_FILE = _DATA_CACHE / "portfolio_budget.json"

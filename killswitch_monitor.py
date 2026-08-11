@@ -44,15 +44,15 @@ LIVE_MAGICS = {88001, 88002, 88003, 88004, 88005, 88006, 88007, 88008}
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
 LOG = Path(r"C:\mt5-paper\gold-drift\killswitch.jsonl")
 
-# Hard thresholds (all in USD). RECALIBRATED 2026-06-25: the old -$30/7d brake sat BELOW the
-# noise floor of a minimum-lot (0.01) strategy that naturally swings +/-$40-60/week, so it
-# false-tripped on normal variance (fired on a -$41.28 week that was within backtest DD).
-# New brakes sit ABOVE normal weekly noise but still stop a genuine breakdown; protection
-# shifts toward the equity FLOOR (the real catastrophe stop) and away from the noisy 7d figure.
-THRESH_30D_LOSS = -110.0      # ~16% of equity over a month (was -60)
-THRESH_7D_LOSS = -65.0        # above the ~$50 weekly noise floor at 0.01 lot (was -30)
-THRESH_LOSING_STREAK = 6      # small edges have 5-6 loss runs by chance (was 5)
-THRESH_EQUITY_FLOOR = 530.0   # hard stop ~ -22% from ~$680; tightened as the real backstop (was 500)
+# Hard thresholds (all in USD). RECALIBRATED 2026-08-11: lot sizes scaled 5x (0.01->0.05)
+# so per-trade P&L and variance are 5x larger. Weekly noise floor is now ~$50-150 at 0.05 lot.
+# Old thresholds (-$65/7d, -$110/30d) would false-trip on a single bad structural trade.
+# New thresholds match the user's stated $100 risk tolerance and the 5x position scale-up.
+# Equity floor lowered slightly to give more room while still catching catastrophic drawdowns.
+THRESH_30D_LOSS = -200.0      # ~31% monthly loss at $632 equity (was -110)
+THRESH_7D_LOSS = -100.0       # user's stated $100 risk tolerance; covers ~1.5 bad structural trades (was -65)
+THRESH_LOSING_STREAK = 7      # at 5x lots a 7-trade streak is meaningful (was 6)
+THRESH_EQUITY_FLOOR = 480.0   # hard stop ~24% drawdown from $632; gives room for variance (was 530)
 REFERENCE_SYMBOLS = ("BTCUSD", "GOLD", "USDJPY")
 
 

@@ -14,7 +14,7 @@
                   {
                       "source":  "killswitch_monitor.py",
                       "destination":  "scripts/killswitch_monitor.py",
-                      "sha256":  "1ba85efa5aa4432db59bdb8dcf7d5269c217848dbb40e470d732f79b715de69c"
+                      "sha256":  "a7a142f050953771436a212ae89abf048a84808038db8a2bac2d63685194df96"
                   },
                   {
                       "source":  "remote_control.py",
@@ -24,12 +24,22 @@
                   {
                       "source":  "hotfix/scripts/gold_drift_live.py",
                       "destination":  "scripts/gold_drift_live.py",
-                      "sha256":  "24e72e963f8f6110ccbeb1eebcc94bfbbf041e275568693c0b8ba541265847cf"
+                      "sha256":  "1a218e7470095ec234d460f2407eeb19b193b68fc24e34e94f0a47e8be6cbd2e"
                   },
                   {
                       "source":  "hotfix/scripts/multi_drift_live.py",
                       "destination":  "scripts/multi_drift_live.py",
-                      "sha256":  "096e588335bd7ab85bbb06fc496e6da8cebfa204af2ac4b27fdf9d5d5055e4ff"
+                      "sha256":  "ccc233945046eae45b5c2ee020f1e37faff061c74a2ec3057ceeb5ce477935b9"
+                  },
+                  {
+                      "source":  "hotfix/scripts/apply_approved_thesis.py",
+                      "destination":  "scripts/apply_approved_thesis.py",
+                      "sha256":  "7863ff998326e3e624f13ad7ed75e157055cc2ec46275a76aafdb984d227da81"
+                  },
+                  {
+                      "source":  "hotfix/scripts/intraday_mean_rev.py",
+                      "destination":  "scripts/intraday_mean_rev.py",
+                      "sha256":  "7d28fe1433ad85cfe102afbcae1e4aec076f8141f4d5ba76ee430dcc8a10210a"
                   },
                   {
                       "source":  "hotfix/scripts/structural_scheduler.py",

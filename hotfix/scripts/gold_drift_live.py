@@ -42,14 +42,14 @@ from mt5_agent.mt5_execution import (
 
 SYM = "GOLD"
 MAGIC = 88001
-MAX_LOT = 0.01
-# SL/TP in DOLLARS for 0.01 lot (each tick = $0.01, so $30 = 3000 price ticks = $30 price move).
-# These were chosen from a full-history SL/TP grid backtest (scripts/sl_tp_optimizer.py):
-# tighter SL + wider TP nets $+517 vs $+294 baseline (75% improvement) and lower drawdown.
-HARD_STOP_USD = 30.0      # catastrophic SL — only ~4.5% of historical trades would have hit
-HARD_TP_USD = 120.0       # catches rare moonshots; 99.7% of trades exit by time anyway
-MAX_DAILY_LOSS_USD = 20.0
-MAX_PORTFOLIO_DAILY_LOSS_USD = 20.0
+MAX_LOT = 0.05
+# SL/TP scaled 5x from 0.01-lot baseline to keep the same price-distance safety net.
+# At 0.05 lot: $150 SL = $30 gold move (same catastrophic backstop), typical 1h drift
+# worth $15-50 vs the previous $3-10 at 0.01 lot.
+HARD_STOP_USD = 150.0     # catastrophic SL — same price distance, 5x bigger $ (matches 5x lot)
+HARD_TP_USD = 600.0       # catches rare moonshots; 99.7% of trades exit by time anyway
+MAX_DAILY_LOSS_USD = 50.0
+MAX_PORTFOLIO_DAILY_LOSS_USD = 80.0
 LOOKBACK = 60
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
 STRUCTURAL_MAGICS = set(range(88001, 88010))

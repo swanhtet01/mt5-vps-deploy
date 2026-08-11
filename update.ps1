@@ -235,7 +235,14 @@ if ($LASTEXITCODE) { Write-Host '  WARN: MT5-ApplyThesis create failed (continui
 Set-MT5TaskReliability -TaskName 'MT5-ApplyThesis' -ExecutionMinutes 15
 # Defensive: ensure the kill-switch (cumulative-drawdown brake) is ENABLED, not just present.
 schtasks /change /tn 'MT5-GoldDrift-KillSwitch' /enable 2>$null | Out-Null
-Write-Host '  [6b] context-ingest + thesis + apply scheduled before broker midnight; kill-switch enabled' -ForegroundColor Green
+# Intraday mean-reversion (GOLD+USDJPY RSI fade) -- every 30 min during London/NY sessions.
+# Runs PAPER-ONLY until MT5_GOLD_DRIFT_LIVE=1 is set; same live flag as structural edges.
+$mrBody = "& '$py' '$repo\scripts\intraday_mean_rev.py' *>> 'C:\mt5-paper\intraday-mr\task.log'`r`nexit `$LASTEXITCODE"
+$mrAction = New-HiddenTaskAction -Name 'intraday-mr' -Body $mrBody
+schtasks /create /tn 'MT5-IntradayMR' /tr $mrAction /sc minute /mo 30 /it /f | Out-Null
+if ($LASTEXITCODE) { Write-Host '  WARN: MT5-IntradayMR create failed (continuing)' -ForegroundColor Yellow }
+Set-MT5TaskReliability -TaskName 'MT5-IntradayMR' -ExecutionMinutes 5
+Write-Host '  [6b] context-ingest + thesis + apply scheduled before broker midnight; kill-switch enabled; intraday MR every 30min' -ForegroundColor Green
 
 # 6c) Reboot-survival backstop: a SYSTEM task that pings the phone on boot so a restart
 # (Windows Update, host maintenance) is VISIBLE. With auto-logon set up (recommended),
