@@ -40,7 +40,8 @@ from mt5_agent.trade_history import closed_trades_from_deals
 # loss/streak guards MUST sum across ALL live magics, not just gold (88001). Otherwise a
 # drawdown on USDJPY/UK100/etc. never trips it and only the per-day caps + equity floor cover
 # them. 88009 (GOLD_TUE) is culled, so excluded.
-LIVE_MAGICS = {88001, 88002, 88003, 88004, 88005, 88006, 88007, 88008}
+LIVE_MAGICS = {88001, 88002, 88003, 88004, 88005, 88006, 88007, 88008,
+               88011, 88012, 88013, 88014}  # includes intraday mean-rev
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
 LOG = Path(r"C:\mt5-paper\gold-drift\killswitch.jsonl")
 

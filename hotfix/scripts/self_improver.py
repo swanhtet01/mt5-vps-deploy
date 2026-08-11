@@ -50,7 +50,8 @@ SIZING_FILE = _SZ
 PATTERN_FILE = _PT
 CLAUDE_MAGICS = {88001: "GOLD_DRIFT", 88002: "USDJPY_MON", 88003: "UK100_THU",
                  88004: "GOLD_FRI", 88005: "USDJPY_WED", 88006: "GOLD_THU",
-                 88007: "AUDJPY_MON", 88008: "GBPJPY_THU"}
+                 88007: "AUDJPY_MON", 88008: "GBPJPY_THU",
+                 88011: "GOLD_MR", 88012: "USDJPY_MR", 88013: "EURUSD_MR", 88014: "GBPUSD_MR"}
 
 
 def journal(entry: dict) -> None:
@@ -161,6 +162,70 @@ def auto_pause_leaks(trades: list[dict]) -> dict:
             "total_blacklisted": len(final_list)}
 
 
+def auto_scale_winners(trades: list[dict]) -> dict:
+    """Increase lot multiplier for edges showing strong 7d P&L.
+
+    Rules:
+      - Need at least 5 trades in the last 7 days for any change.
+      - If 7d P&L > $20 AND win_rate > 60% → scale UP by 0.1 (cap 1.5x)
+      - If 7d P&L < -$10 AND win_rate < 45% → scale DOWN by 0.1 (floor 0.5x)
+      - Otherwise: no change.
+
+    Writes data_cache/edge_scale.json; multi_drift_live.py reads this for
+    an additional lot multiplier on top of its base sizing.
+    """
+    from datetime import timedelta
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
+    by_magic: dict[int, list[float]] = {}
+    for t in trades:
+        if t.get("ts") and t["ts"] >= cutoff:
+            m = int(t.get("magic", 0))
+            if m in CLAUDE_MAGICS:
+                by_magic.setdefault(m, []).append(float(t.get("net", 0)))
+
+    scale_path = DATA_CACHE / "edge_scale.json"
+    try:
+        current = _write_json_atomic.__module__ and {}  # init
+        if scale_path.exists():
+            current = json.loads(scale_path.read_text(encoding="utf-8"))
+    except Exception:
+        current = {}
+
+    changes = []
+    for magic, nets in by_magic.items():
+        if len(nets) < 5:
+            continue
+        total = sum(nets)
+        wr = sum(1 for n in nets if n > 0) / len(nets)
+        key = str(magic)
+        old_mult = float(current.get(key, {}).get("mult", 1.0))
+
+        if total > 20.0 and wr > 0.60:
+            new_mult = min(1.5, round(old_mult + 0.1, 1))
+            reason = f"strong 7d: ${total:+.2f}, wr={wr:.0%}"
+        elif total < -10.0 and wr < 0.45:
+            new_mult = max(0.5, round(old_mult - 0.1, 1))
+            reason = f"weak 7d: ${total:+.2f}, wr={wr:.0%}"
+        else:
+            new_mult = old_mult
+            reason = "stable"
+
+        if abs(new_mult - old_mult) > 0.05:
+            changes.append({
+                "magic": magic, "name": CLAUDE_MAGICS.get(magic, "?"),
+                "old_mult": old_mult, "new_mult": new_mult, "reason": reason,
+                "n_trades_7d": len(nets), "pnl_7d": round(total, 2), "wr_7d": round(wr, 3),
+            })
+        current[key] = {"mult": new_mult, "name": CLAUDE_MAGICS.get(magic, "?"),
+                        "updated_at": datetime.now(tz=timezone.utc).isoformat()}
+
+    _write_json_atomic(scale_path, {
+        "generated_at": datetime.now(tz=timezone.utc).isoformat(),
+        "edges": current,
+    })
+    return {"changes": changes, "total_tracked": len(by_magic)}
+
+
 def neighbor_explore(trades: list[dict]) -> dict:
     """For each Claude signal, propose ONE parameter mutation worth shadow-testing.
 
@@ -196,16 +261,32 @@ def main():
         trades = collect_trades()
         ai = mt5.account_info()
         leaks = auto_pause_leaks(trades)
+        scaling = auto_scale_winners(trades)
         explore = neighbor_explore(trades)
         report = {
             "event": "self_improver_cycle",
             "n_trades": len(trades),
             "equity": round(ai.equity, 2), "balance": round(ai.balance, 2),
             "blacklist": leaks,
-            "exploration": explore["proposals"][:3],  # log only top 3 to keep journal compact
+            "scaling": scaling,
+            "exploration": explore["proposals"][:3],
         }
         journal(report)
         print(json.dumps(report, indent=2, default=str))
+
+        # Push phone summary if any changes were made
+        if scaling.get("changes") or leaks.get("new_blacklisted"):
+            try:
+                from notify import send_ntfy
+                msgs = []
+                for c in scaling.get("changes", []):
+                    msgs.append(f"{c['name']}: {c['old_mult']}x→{c['new_mult']}x ({c['reason']})")
+                for b in leaks.get("new_blacklisted", []):
+                    msgs.append(f"BLACKLIST: {b[0]} magic={b[1]}")
+                if msgs:
+                    send_ntfy("\n".join(msgs), title="Self-Improver", tags="robot")
+            except Exception:
+                pass
     finally:
         mt5.shutdown()
 

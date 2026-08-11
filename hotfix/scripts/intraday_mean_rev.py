@@ -1,4 +1,4 @@
-"""Intraday RSI mean-reversion trader — GOLD and USDJPY.
+"""Intraday RSI mean-reversion trader — GOLD, USDJPY, EURUSD, GBPUSD.
 
 Runs every 30 minutes during London (07:00-11:30 UTC) and NY (13:00-17:30 UTC) sessions.
 Uses H1 RSI(14) as the primary signal: RSI < 35 -> BUY (oversold fade), RSI > 65 -> SELL.
@@ -10,12 +10,12 @@ active intraday participation without touching the validated structural position
 
 Safety guardrails:
   - Uses MT5_GOLD_DRIFT_LIVE env flag (same as structural edges)
-  - Daily loss limit per magic: $30
+  - Daily loss limit per magic: $20-$35 depending on symbol
   - Max 1 open position per magic at a time
-  - Hard SL $45 / TP $30 (tighter than structural — stop is real, not just safety net)
+  - Hard SL per spec; TP tighter than structural (these are mean-rev fades, not trend trades)
   - Regime gate: RSI extreme + ATR in normal band + session filter
 
-Magics: 88011 (GOLD mean-rev), 88012 (USDJPY mean-rev)
+Magics: 88011 (GOLD), 88012 (USDJPY), 88013 (EURUSD), 88014 (GBPUSD)
 """
 
 from __future__ import annotations
@@ -55,6 +55,18 @@ SIGNALS = [
          sl_usd=37.5, tp_usd=25.0, daily_loss_limit=-25.0,
          rsi_buy=35, rsi_sell=65, min_atr_pct=0.02, max_atr_pct=0.8,
          description="USDJPY H1 RSI mean-reversion 0.05 lot"),
+    # EURUSD: most liquid major pair — tight spread, clean RSI signals during London/NY
+    # 0.05 lot; each pip ~$0.50; SL $37.50 = 75 pips; TP $25 = 50 pips (quick mean-revert)
+    dict(symbol="EURUSD", magic=88013, side_bias="both", max_lot=0.05,
+         sl_usd=37.5, tp_usd=25.0, daily_loss_limit=-25.0,
+         rsi_buy=33, rsi_sell=67, min_atr_pct=0.01, max_atr_pct=0.5,
+         description="EURUSD H1 RSI mean-reversion 0.05 lot"),
+    # GBPUSD: volatile major pair — bigger ATR tolerance; use 0.03 lot to keep risk similar
+    # 0.03 lot; each pip ~$0.30; SL $45 = 150 pips; TP $30 = 100 pips
+    dict(symbol="GBPUSD", magic=88014, side_bias="both", max_lot=0.03,
+         sl_usd=45.0, tp_usd=30.0, daily_loss_limit=-25.0,
+         rsi_buy=33, rsi_sell=67, min_atr_pct=0.02, max_atr_pct=0.7,
+         description="GBPUSD H1 RSI mean-reversion 0.03 lot"),
 ]
 
 LONDON_OPEN_UTC  = (7,   0)

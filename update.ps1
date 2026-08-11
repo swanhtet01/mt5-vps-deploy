@@ -218,6 +218,11 @@ Write-Host '  [6] MT5-SymbolScanner scheduled (Sundays 08:00 UTC)' -ForegroundCo
 # (context_ingest writes news/macro/context first) instead of
 # empty defaults. Sequence (local time = UTC+6:30):
 #   01:30 context_ingest -> 02:00 thesis -> 02:30 apply
+$dmBody = "& '$py' '$repo\scripts\build_dashboard_metrics.py' *>> 'C:\mt5-paper\analytics\dashboard_build.log'`r`nexit `$LASTEXITCODE"
+$dmAction = New-HiddenTaskAction -Name 'build-dashboard-metrics' -Body $dmBody
+schtasks /create /tn 'MT5-BuildDashboard' /tr $dmAction /sc daily /st 01:00 /it /f | Out-Null
+if ($LASTEXITCODE) { Write-Host '  WARN: MT5-BuildDashboard create failed (continuing)' -ForegroundColor Yellow }
+Set-MT5TaskReliability -TaskName 'MT5-BuildDashboard' -ExecutionMinutes 10
 $ciBody = "& '$py' '$repo\scripts\context_ingest.py' --data-cache-dir '$repo\data_cache' *>> 'C:\mt5-paper\analytics\context.log'`r`nexit `$LASTEXITCODE"
 $ciAction = New-HiddenTaskAction -Name 'context-ingest' -Body $ciBody
 schtasks /create /tn 'MT5-ContextIngest' /tr $ciAction /sc daily /st 01:30 /it /f | Out-Null

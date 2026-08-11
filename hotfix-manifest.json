@@ -14,7 +14,7 @@
                   {
                       "source":  "killswitch_monitor.py",
                       "destination":  "scripts/killswitch_monitor.py",
-                      "sha256":  "a7a142f050953771436a212ae89abf048a84808038db8a2bac2d63685194df96"
+                      "sha256":  "0021923dbc098bb8c7d2d1efd7c7e749a6cca4c834c62d48190b3a0165cfd751"
                   },
                   {
                       "source":  "remote_control.py",
@@ -39,7 +39,7 @@
                   {
                       "source":  "hotfix/scripts/intraday_mean_rev.py",
                       "destination":  "scripts/intraday_mean_rev.py",
-                      "sha256":  "7d28fe1433ad85cfe102afbcae1e4aec076f8141f4d5ba76ee430dcc8a10210a"
+                      "sha256":  "9a14bd21a247a889ab0da2d0589ae35100bed1e8b6a78166cdb137bb13c6ed9d"
                   },
                   {
                       "source":  "hotfix/scripts/structural_scheduler.py",
@@ -209,7 +209,7 @@
                   {
                       "source":  "hotfix/scripts/self_improver.py",
                       "destination":  "scripts/self_improver.py",
-                      "sha256":  "d28a2a9e60b3fec98cd73bda87da7a6099719393428539bd3c71eb3ba1cd230f"
+                      "sha256":  "6ca85219e43c499c01c32ed97f7f1fb39d17ed824c5e394d9a2bc9d9be02baab"
                   },
                   {
                       "source":  "hotfix/scripts/swing_trader.py",
@@ -275,6 +275,26 @@
                       "source":  "hotfix/src/mt5_agent/scaling.py",
                       "destination":  "src/mt5_agent/scaling.py",
                       "sha256":  "f716963cefb2f96e87081cb872a962a0588a974bb92139f6aa5e202973ddaa65"
+                  },
+                  {
+                      "source":  "hotfix/scripts/build_dashboard_metrics.py",
+                      "destination":  "scripts/build_dashboard_metrics.py",
+                      "sha256":  "935f45869cbd8b6f720b54881b40eb9e64d693a06216ffb75a0588a35217ccfd"
+                  },
+                  {
+                      "source":  "hotfix/scripts/thesis_ingest.py",
+                      "destination":  "scripts/thesis_ingest.py",
+                      "sha256":  "7843d04b967cd8240c06fcb1d19aecd7e4650034771b14a8b99516bf53737ba9"
+                  },
+                  {
+                      "source":  "hotfix/src/mt5_agent/claude_thesis_generator.py",
+                      "destination":  "src/mt5_agent/claude_thesis_generator.py",
+                      "sha256":  "94d24b615a32a71d480394154a36ef3d295c1d960b23ae5443014947c17585a9"
+                  },
+                  {
+                      "source":  "hotfix/src/mt5_agent/dashboard_metrics.py",
+                      "destination":  "src/mt5_agent/dashboard_metrics.py",
+                      "sha256":  "6206a688d6783ef021fd2ad4b3622bbd43d2c18c0caa42321abc8f2a67e658ac"
                   }
               ]
 }
