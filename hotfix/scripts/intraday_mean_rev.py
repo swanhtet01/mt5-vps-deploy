@@ -278,7 +278,11 @@ def run_symbol(spec: dict, utc_now: datetime) -> None:
         _log(name, {**base, "event": "order_none", "last_error": mt5.last_error()})
         return
     res = result._asdict()
-    if not successful_deal_retcode(res.get("retcode"), mt5.TRADE_RETCODE_DONE, mt5.TRADE_RETCODE_DONE_PARTIAL):
+    if not successful_deal_retcode(
+        res.get("retcode"),
+        done=mt5.TRADE_RETCODE_DONE,
+        done_partial=mt5.TRADE_RETCODE_DONE_PARTIAL,
+    ):
         _log(name, {**base, "event": "order_rejected", "result": res})
         return
 
