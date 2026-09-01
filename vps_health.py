@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 import os
 import shutil
 import sys
@@ -185,6 +186,20 @@ def check_freshness():
         out["news_status"] = "WARN"
         out["news_error"] = "news_state.json missing"
     out["blacklist_present"] = BLACKLIST_FILE.exists()
+    # maybe_notify only inspects a top-level "status", so without this the whole check was
+    # unalertable: a missing or stale news_state.json set news_status and contributed nothing
+    # to severity. The news gate fails OPEN on a missing file, so nobody finding out is
+    # precisely the case worth paging about.
+    problems = []
+    if out.get("news_status") == "WARN":
+        problems.append("news state " + str(out.get("news_error", "is stale")))
+    if not out["blacklist_present"]:
+        problems.append("blacklist.json missing")
+    if problems:
+        out["status"] = "WARN"
+        out["reason"] = "; ".join(problems)
+    else:
+        out["status"] = "OK"
     return out
 
 
@@ -225,7 +240,11 @@ def check_structural_scheduler():
         ) / 60.0
         result["event_age_min"] = round(age_minutes, 1)
         if age_minutes > 20:
-            result.update(status="WARN", reason=f"structural scheduler event is {age_minutes:.0f} minutes old")
+            # The age must NOT go in the reason: maybe_notify hashes the reason strings to
+            # dedup, so a number that changes every run made a new key every run and the 6h
+            # cooldown never applied -- 48 pushes/day from one chronic warning. The value is
+            # already reported as event_age_min, which is not part of the key.
+            result.update(status="WARN", reason="structural scheduler event heartbeat is stale")
     except OSError as exc:
         result.update(status="WARN", reason=f"cannot stat structural scheduler events: {exc}")
     return result
@@ -605,7 +624,12 @@ def maybe_notify(report: dict):
         write_json_atomic(state_file, {"severity": "OK", "ts": now, "key": ""})
         return
 
-    key = hashlib.md5((severity + "|" + "|".join(sorted(reasons))).encode()).hexdigest()
+    # Digits are normalised out of the KEY (never out of the pushed message) so that a reason
+    # carrying a measured value -- an age, a byte count, an errno -- dedups on the KIND of
+    # problem rather than reading as a brand-new alert every run. Without this the cooldown
+    # below silently does nothing for exactly the chronic warnings it exists to damp.
+    fingerprint = re.sub(r"\d+", "#", severity + "|" + "|".join(sorted(reasons)))
+    key = hashlib.md5(fingerprint.encode()).hexdigest()
     cooldown = 3600 if severity == "CRITICAL" else 6 * 3600
     if key == state.get("key") and (now - state.get("ts", 0)) < cooldown:
         return  # identical alert within cooldown -> suppress (anti-spam)
@@ -636,5 +660,14 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as exc:  # the monitor must not itself fail the task; it alerts via ntfy
-        print(f"vps_health non-fatal error: {type(exc).__name__}: {exc}", file=sys.stderr)
+    except Exception as exc:
+        # The old comment here said the monitor must not fail its own task because "it alerts
+        # via ntfy" -- but a throw out of main() means maybe_notify was never reached, so it
+        # alerted via nothing and still exited 0. A health monitor that cannot report its own
+        # failure is not a monitor. Push first (best effort), then fail the task honestly.
+        print(f"vps_health FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
+        try:
+            _push_health(f"[VPS CRITICAL] health monitor itself failed: {type(exc).__name__}: {exc}")
+        except Exception:
+            pass
+        sys.exit(1)

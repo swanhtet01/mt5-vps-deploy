@@ -4,7 +4,7 @@
                   {
                       "source":  "vps_health.py",
                       "destination":  "scripts/vps_health.py",
-                      "sha256":  "3d1954792b684bf960d641d71174caebb4f0d6f9be2759aabb628d2f081985d8"
+                      "sha256":  "1dc58fdf3481b0c130034b99018a13ff1c6be90a1a630772ded7b8f032920d4a"
                   },
                   {
                       "source":  "hotfix/scripts/paths.py",
@@ -14,7 +14,7 @@
                   {
                       "source":  "killswitch_monitor.py",
                       "destination":  "scripts/killswitch_monitor.py",
-                      "sha256":  "0021923dbc098bb8c7d2d1efd7c7e749a6cca4c834c62d48190b3a0165cfd751"
+                      "sha256":  "90b6c64dcac2adced0b0e20818e07afba2de0c5e5a8de97719994ba6073ef13e"
                   },
                   {
                       "source":  "heartbeat.py",
