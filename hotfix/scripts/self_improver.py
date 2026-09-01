@@ -146,6 +146,15 @@ def auto_pause_leaks(trades: list[dict]) -> dict:
     for b in existing:
         key = (b["symbol"], b["magic"])
         if key not in final:
+            # A remote entry is a HUMAN decision to stop an edge, made through control.json.
+            # Recovery evidence is not grounds to overrule it -- only the human removing it
+            # from control.json is. remote_control.py is deliberately careful in the other
+            # direction ("keep non-remote (e.g. self_improver) entries verbatim"); without
+            # this the asymmetry let an operator's deliberate pause be dropped here, and it
+            # only came back if MT5-RemoteControl happened to be installed to re-add it.
+            if b.get("source") == "remote":
+                final[key] = b
+                continue
             # Check if still failing
             nets = by_bucket.get(key, [])
             if nets and sum(nets[-10:]) > 5:
@@ -171,8 +180,16 @@ def auto_scale_winners(trades: list[dict]) -> dict:
       - If 7d P&L < -$10 AND win_rate < 45% → scale DOWN by 0.1 (floor 0.5x)
       - Otherwise: no change.
 
-    Writes data_cache/edge_scale.json; multi_drift_live.py reads this for
-    an additional lot multiplier on top of its base sizing.
+    Writes data_cache/edge_scale.json. NOTHING READS THAT FILE -- the claim that
+    multi_drift_live.py picks it up is false, and was checked across both repos: the
+    only mentions of edge_scale anywhere are this docstring and the write below.
+    multi_drift_live reads position_sizing.json instead, where a multiplier above
+    1.0 additionally requires rec["promotion_authorized"].
+
+    Left as a dead write on purpose. Wiring it up as the old docstring described
+    would hand this unattended script a 1.5x lot lever on live money with no
+    authorization step -- so if this ever is connected, it needs the same
+    promotion_authorized gate, not a straight read.
     """
     from datetime import timedelta
     cutoff = datetime.now(tz=timezone.utc) - timedelta(days=7)
