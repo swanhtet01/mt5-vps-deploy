@@ -114,6 +114,48 @@ def check_memory():
         return {"status": "WARN", "reason": str(e)}
 
 
+# LastTaskResult values that are NOT failures: success, currently running, and never yet run
+# (0x41301 / 0x41303). A fresh install legitimately reports "not yet run" for a while.
+_BENIGN_TASK_RESULTS = {0, 267009, 267011}
+
+
+def task_last_results():
+    """Map MT5-* task name -> LastTaskResult (its last EXIT CODE).
+
+    schtasks /query reports Ready/Running/Disabled -- the SCHEDULE state, not the outcome.
+    A task that has exited non-zero on every run for a week still reads Ready, which is
+    exactly how a broken safety script stays invisible: killswitch_monitor.py and this file
+    both exit 1 on failure now, and nothing was reading those exit codes.
+
+    Get-ScheduledTaskInfo is used rather than `schtasks /query /v`, whose column HEADERS are
+    localised -- matching on the string "Last Result" would silently find nothing on a
+    non-English box, which is the same class of silent failure being fixed here. status.ps1
+    already reads LastTaskResult this way.
+    """
+    script = (
+        "Get-ScheduledTask -TaskName 'MT5-*' -ErrorAction SilentlyContinue | "
+        "Get-ScheduledTaskInfo | "
+        "Select-Object TaskName, LastTaskResult | ConvertTo-Json -Compress"
+    )
+    proc = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, timeout=25,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return {}
+    payload = json.loads(proc.stdout)
+    # ConvertTo-Json emits a bare object when there is exactly one task, a list otherwise.
+    if isinstance(payload, dict):
+        payload = [payload]
+    results = {}
+    for row in payload:
+        name = str(row.get("TaskName", "")).lstrip("\\")
+        code = row.get("LastTaskResult")
+        if name and isinstance(code, int):
+            results[name] = code
+    return results
+
+
 def check_scheduled_tasks():
     try:
         result = subprocess.run(
@@ -149,18 +191,50 @@ def check_scheduled_tasks():
                     not_ready.append(name)
         ready = {item["name"] for item in mt5_tasks if item["status"] in ("Ready", "Running")}
         critical_down = sorted(critical - ready)
+
+        # Being scheduled is not the same as working. Read the last exit code too, so a
+        # critical task that fires on time and fails every single time is not reported OK.
+        try:
+            last_results = task_last_results()
+        except Exception as exc:  # never let the outcome probe break the state check
+            last_results = {}
+            failing = []
+            probe_error = f"{type(exc).__name__}: {exc}"
+        else:
+            probe_error = None
+            failing = sorted(
+                name for name, code in last_results.items()
+                if name in critical and code not in _BENIGN_TASK_RESULTS
+            )
+
+        problems = []
+        if probe_error:
+            # Could not read the outcomes at all. Reporting OK here would be the same
+            # mistake this probe exists to correct -- "we did not check" is not "it is fine".
+            problems.append("cannot read task exit codes")
         if critical_down:
-            return {
+            problems.append("critical task(s) not Ready: " + ", ".join(critical_down))
+        if failing:
+            problems.append("critical task(s) failing their last run: " + ", ".join(
+                f"{name} (exit {last_results[name]})" for name in failing))
+
+        if problems:
+            out = {
                 "status": "WARN",
                 "total": len(mt5_tasks),
-                "reason": "critical task(s) not Ready: " + ", ".join(critical_down),
+                "reason": "; ".join(problems),
                 "critical_down": critical_down,
+                "critical_failing": failing,
                 "disabled": not_ready,
             }
+            if probe_error:
+                out["last_result_probe_error"] = probe_error
+            return out
         return {
             "status": "OK",
             "total": len(mt5_tasks),
             "disabled_noncritical": not_ready,
+            "last_results_read": len(last_results),
         }
     except Exception as e:
         return {"status": "WARN", "reason": str(e)}

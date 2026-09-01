@@ -4,7 +4,7 @@
                   {
                       "source":  "vps_health.py",
                       "destination":  "scripts/vps_health.py",
-                      "sha256":  "1dc58fdf3481b0c130034b99018a13ff1c6be90a1a630772ded7b8f032920d4a"
+                      "sha256":  "93a26deec8d87a1f5a76540a44e6847416b9628c69cdf3c7f13fa8608a3b368d"
                   },
                   {
                       "source":  "hotfix/scripts/paths.py",
