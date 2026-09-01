@@ -9,12 +9,24 @@ that reaches the broker by accident fails loudly instead of silently passing.
 
 from __future__ import annotations
 
+import os
 import sys
+import tempfile
 import types
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
+# The deployed strategy scripts live here and import each other by bare name.
+sys.path.insert(0, str(REPO_ROOT / "hotfix" / "scripts"))
+
+# paths.py resolves its roots from the environment at import and defaults to C:\mt5-paper,
+# which on Linux is a *relative* path — anything that writes would create a directory
+# literally named "C:\mt5-paper" inside the repo. Point both roots at a temp dir so a stray
+# write lands somewhere harmless rather than in the working tree.
+_SANDBOX = Path(tempfile.mkdtemp(prefix="mt5-vps-deploy-tests-"))
+os.environ.setdefault("MT5_PAPER", str(_SANDBOX / "paper"))
+os.environ.setdefault("MT5_REPO", str(_SANDBOX / "repo"))
 
 
 def _pin_mt5_agent_to_this_repo() -> None:

@@ -9,7 +9,10 @@ This strategy trades MORE FREQUENTLY than the structural weekly edges, providing
 active intraday participation without touching the validated structural positions.
 
 Safety guardrails:
-  - Uses MT5_GOLD_DRIFT_LIVE env flag (same as structural edges)
+  - Requires BOTH MT5_GOLD_DRIFT_LIVE and its own MT5_INTRADAY_MR_LIVE to trade live, so
+    arming the validated structural edges does not arm this one too. This strategy has no
+    backtest artefact: keep it paper-only until it has survived a cost-aware walk-forward.
+    MT5_INTRADAY_MR_FORCE_PAPER_ONLY=1 overrides both.
   - Daily loss limit per magic: $20-$35 depending on symbol
   - Max 1 open position per magic at a time
   - Hard SL per spec; TP tighter than structural (these are mean-rev fades, not trend trades)
@@ -21,6 +24,7 @@ Magics: 88011 (GOLD), 88012 (USDJPY), 88013 (EURUSD), 88014 (GBPUSD)
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -44,6 +48,13 @@ from paths import (  # noqa: E402
 )
 
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
+# This strategy needs its OWN arming flag on top of the shared one, the same way
+# structural_scheduler.py gates on MT5_STRUCTURAL_SCHEDULER_LIVE. MT5_GOLD_DRIFT_LIVE arms
+# every validated edge on the account, so riding it alone meant an unvalidated fade went
+# live the moment anything else did — and could only be stopped by disarming everything.
+# Setting MT5_GOLD_DRIFT_LIVE=1 must not, by itself, put this strategy into the market.
+INTRADAY_LIVE_ENV_FLAG = "MT5_INTRADAY_MR_LIVE"
+FORCE_PAPER_ONLY_ENV_FLAG = "MT5_INTRADAY_MR_FORCE_PAPER_ONLY"
 LOG_DIR = _PAPER_ROOT / "intraday-mr"
 
 SIGNALS = [
@@ -86,7 +97,12 @@ def _log(name: str, event: dict) -> None:
 
 
 def _is_live() -> bool:
-    return persistent_user_flag_enabled(LIVE_ENV_FLAG)
+    # Both flags, and the force-paper override wins — mirrors structural_scheduler._live_armed.
+    return (
+        os.environ.get(FORCE_PAPER_ONLY_ENV_FLAG, "").strip() != "1"
+        and persistent_user_flag_enabled(LIVE_ENV_FLAG)
+        and persistent_user_flag_enabled(INTRADAY_LIVE_ENV_FLAG)
+    )
 
 
 def _in_session(utc_now: datetime) -> bool:
