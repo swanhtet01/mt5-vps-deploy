@@ -49,6 +49,13 @@ try {
     $update = Invoke-WebRequest "https://raw.githubusercontent.com/$gh_repo/$sha/update.ps1" `
         -UseBasicParsing -TimeoutSec 30
     Invoke-Expression $update.Content
+    # Do not take "it did not throw" as proof the deploy landed. update.ps1 can exit early
+    # without raising, and Invoke-Expression surfaces that as success. Require the completion
+    # marker update.ps1 writes as its last act, naming this exact commit.
+    $marker = Get-Content "$deploy\last_update_complete.txt" -ErrorAction SilentlyContinue
+    if ($marker -ne $sha) {
+        throw "update.ps1 did not run to completion (marker='$marker', expected '$sha')"
+    }
     Set-Content $sha_file $sha -NoNewline                 # mark success
     Remove-Item $att_file -ErrorAction SilentlyContinue
     Log "Deploy complete - now at $($sha.Substring(0,8))"
