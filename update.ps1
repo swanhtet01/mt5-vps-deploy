@@ -74,30 +74,77 @@ function Sync-Hotfixes {
         throw 'Invalid or empty hotfix manifest.'
     }
     $repoPrefix = [IO.Path]::GetFullPath($repo.TrimEnd('\') + '\')
-    foreach ($entry in $manifest.files) {
-        $source = [string]$entry.source
-        $relative = ([string]$entry.destination) -replace '/', '\'
-        $expected = ([string]$entry.sha256).ToLowerInvariant()
-        if (-not $source -or $source.Contains('..') -or [IO.Path]::IsPathRooted($source)) {
-            throw "Unsafe manifest source: $source"
-        }
-        $destination = [IO.Path]::GetFullPath((Join-Path $repo $relative))
-        if (-not $destination.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
-            throw "Unsafe manifest destination: $relative"
-        }
-        New-Item -ItemType Directory -Path (Split-Path $destination -Parent) -Force | Out-Null
-        $temp = "$destination.$PID.download"
-        try {
-            Invoke-WebRequest "$rawBase/$source" -OutFile $temp -UseBasicParsing -TimeoutSec 30
-            $actual = (Get-FileHash $temp -Algorithm SHA256).Hash.ToLowerInvariant()
+    # Two phases. The old loop downloaded, verified and MOVED each file in turn, so a throw
+    # partway through -- a 404, or one stale sha256 -- left the first k files new and the rest
+    # old, permanently, with no rollback. Manifest order makes that concrete: the shared
+    # execution helper is entry 18 and risk/agent/scaling are entries 52-55, so a failure in
+    # between leaves a money path whose halves disagree. Transient causes self-heal on the
+    # next run; a deterministic one fails at the same index every time and stays mixed.
+    $staging = Join-Path $deploy "hotfix-staging.$PID"
+    $backup  = Join-Path $deploy "hotfix-backup.$PID"
+    Remove-Item $staging, $backup -Recurse -Force -ErrorAction SilentlyContinue
+    New-Item -ItemType Directory -Path $staging -Force | Out-Null
+    $planned = New-Object System.Collections.ArrayList
+
+    try {
+        # PHASE 1 - download and verify EVERYTHING into staging. $repo is not touched at all,
+        # so any failure here leaves the installed tree exactly as it was.
+        foreach ($entry in $manifest.files) {
+            $source = [string]$entry.source
+            $relative = ([string]$entry.destination) -replace '/', '\'
+            $expected = ([string]$entry.sha256).ToLowerInvariant()
+            if (-not $source -or $source.Contains('..') -or [IO.Path]::IsPathRooted($source)) {
+                throw "Unsafe manifest source: $source"
+            }
+            $destination = [IO.Path]::GetFullPath((Join-Path $repo $relative))
+            if (-not $destination.StartsWith($repoPrefix, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "Unsafe manifest destination: $relative"
+            }
+            $staged = Join-Path $staging $relative
+            New-Item -ItemType Directory -Path (Split-Path $staged -Parent) -Force | Out-Null
+            Invoke-WebRequest "$rawBase/$source" -OutFile $staged -UseBasicParsing -TimeoutSec 30
+            $actual = (Get-FileHash $staged -Algorithm SHA256).Hash.ToLowerInvariant()
             if ($actual -ne $expected) {
                 throw "SHA256 mismatch for $source"
             }
-            Move-Item $temp $destination -Force
+            [void]$planned.Add([pscustomobject]@{
+                Staged = $staged; Destination = $destination; Relative = $relative
+            })
             Write-Host "  [0] verified hotfix: $relative" -ForegroundColor Green
-        } finally {
-            Remove-Item $temp -Force -ErrorAction SilentlyContinue
         }
+
+        # PHASE 2 - commit. Every file is already verified, so this should not fail; if it
+        # does (a locked file, a full disk), put back what was replaced rather than leaving
+        # the tree half-updated.
+        New-Item -ItemType Directory -Path $backup -Force | Out-Null
+        $applied = New-Object System.Collections.ArrayList
+        try {
+            foreach ($item in $planned) {
+                if (Test-Path $item.Destination) {
+                    $backupPath = Join-Path $backup $item.Relative
+                    New-Item -ItemType Directory -Path (Split-Path $backupPath -Parent) -Force | Out-Null
+                    Copy-Item $item.Destination $backupPath -Force
+                }
+                New-Item -ItemType Directory -Path (Split-Path $item.Destination -Parent) -Force | Out-Null
+                Move-Item $item.Staged $item.Destination -Force
+                [void]$applied.Add($item)
+            }
+        } catch {
+            $reason = $_
+            foreach ($done in $applied) {
+                $backupPath = Join-Path $backup $done.Relative
+                if (Test-Path $backupPath) {
+                    Copy-Item $backupPath $done.Destination -Force
+                } else {
+                    # No backup means the file did not exist before; undo means remove it.
+                    Remove-Item $done.Destination -Force -ErrorAction SilentlyContinue
+                }
+            }
+            throw "hotfix apply failed and was rolled back to the previous tree: $reason"
+        }
+        Write-Host "  [0] applied $($planned.Count) verified hotfixes as one batch" -ForegroundColor Green
+    } finally {
+        Remove-Item $staging, $backup -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
 
