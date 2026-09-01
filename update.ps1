@@ -275,6 +275,17 @@ New-MT5TaskIfMissing -TaskName 'MT5-GoldDrift-KillSwitch' -Action $ksAction -Sch
 $vhBody = "& '$py' '$repo\scripts\vps_health.py' *>> 'C:\mt5-paper\analytics\vps-health.log'`r`nexit `$LASTEXITCODE"
 $vhAction = New-HiddenTaskAction -Name 'vps-health' -Body $vhBody
 New-MT5TaskIfMissing -TaskName 'MT5-VPS-Health' -Action $vhAction -Schedule @('/sc','minute','/mo','30') -ExecutionMinutes 10
+
+# Dead-man's switch. Every other check here runs ON the VPS, so none of them can tell you the
+# VPS itself went dark (crashed, lost its network, Python broken). heartbeat.py pings
+# healthchecks.io every 5 min and that service alerts when the pings STOP -- the only signal
+# in this system that survives the box dying. It always exits 0 (a transient network blip must
+# not flag the task red), and with no HEALTHCHECK_URL set it just writes the local file, so
+# scheduling it is safe before anyone configures the URL.
+# NOTE: set HEALTHCHECK_URL as a MACHINE-level env var, or the task will never ping.
+$hbBody = "& '$py' '$repo\scripts\heartbeat.py' *>> 'C:\mt5-paper\analytics\heartbeat.log'`r`nexit `$LASTEXITCODE"
+$hbAction = New-HiddenTaskAction -Name 'heartbeat' -Body $hbBody
+New-MT5TaskIfMissing -TaskName 'MT5-Heartbeat' -Action $hbAction -Schedule @('/sc','minute','/mo','5') -ExecutionMinutes 5
 # Intraday mean-reversion (GOLD+USDJPY RSI fade) -- every 30 min during London/NY sessions.
 # Runs PAPER-ONLY until MT5_GOLD_DRIFT_LIVE=1 is set; same live flag as structural edges.
 $mrBody = "& '$py' '$repo\scripts\intraday_mean_rev.py' *>> 'C:\mt5-paper\intraday-mr\task.log'`r`nexit `$LASTEXITCODE"

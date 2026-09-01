@@ -17,6 +17,11 @@
                       "sha256":  "0021923dbc098bb8c7d2d1efd7c7e749a6cca4c834c62d48190b3a0165cfd751"
                   },
                   {
+                      "source":  "heartbeat.py",
+                      "destination":  "scripts/heartbeat.py",
+                      "sha256":  "b9e32902880a009dce253afe52adac9cb3978492b24d107c7b39dcaa9cb0d057"
+                  },
+                  {
                       "source":  "remote_control.py",
                       "destination":  "scripts/remote_control.py",
                       "sha256":  "305a33ac8333b8648bec7faeb6b6205ff1647aee8236acb0c12057d20b8506e8"
