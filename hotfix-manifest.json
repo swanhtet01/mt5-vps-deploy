@@ -14,7 +14,7 @@
                   {
                       "source":  "killswitch_monitor.py",
                       "destination":  "scripts/killswitch_monitor.py",
-                      "sha256":  "0021923dbc098bb8c7d2d1efd7c7e749a6cca4c834c62d48190b3a0165cfd751"
+                      "sha256":  "0c872fd886ccf7324ee6156eb968510075534295883a4f7bbf395f316343989d"
                   },
                   {
                       "source":  "remote_control.py",
