@@ -375,6 +375,15 @@ New-MT5TaskIfMissing -TaskName 'MT5-VPS-Health' -Action $vhAction -Schedule @('/
 $hbBody = "& '$py' '$repo\scripts\heartbeat.py' *>> 'C:\mt5-paper\analytics\heartbeat.log'`r`nexit `$LASTEXITCODE"
 $hbAction = New-HiddenTaskAction -Name 'heartbeat' -Body $hbBody
 New-MT5TaskIfMissing -TaskName 'MT5-Heartbeat' -Action $hbAction -Schedule @('/sc','minute','/mo','5') -ExecutionMinutes 5
+# Daily slippage report. The traders journal slippage_points on every fill and nothing read it
+# until now: this runs the delivered analyzer over every event log and writes
+# data_cache\slippage_analysis.json (per-symbol/hour/regime slippage, partial fills, and the
+# comparison against the cost model validation charges). Invoked by FILE PATH, not python -m,
+# because -m can resolve to a different mt5_agent install. Report-only; touches no order path;
+# a missing log file is skipped, so it is safe before every strategy has produced fills.
+$srBody = "& '$py' '$repo\src\mt5_agent\slippage_analyzer.py' --log-file 'C:\mt5-paper\intraday-mr\events.jsonl' --log-file 'C:\mt5-paper\gold-drift\live-events.jsonl' --log-file 'C:\mt5-paper\multi-drift\events.jsonl' --output '$repo\data_cache\slippage_analysis.json' *>> 'C:\mt5-paper\analytics\slippage-report.log'`r`nexit `$LASTEXITCODE"
+$srAction = New-HiddenTaskAction -Name 'slippage-report' -Body $srBody
+New-MT5TaskIfMissing -TaskName 'MT5-SlippageReport' -Action $srAction -Schedule @('/sc','daily','/st','06:30') -ExecutionMinutes 10
 # Intraday mean-reversion (GOLD+USDJPY RSI fade) -- every 30 min during London/NY sessions.
 # Runs PAPER-ONLY until MT5_GOLD_DRIFT_LIVE=1 is set; same live flag as structural edges.
 $mrBody = "& '$py' '$repo\scripts\intraday_mean_rev.py' *>> 'C:\mt5-paper\intraday-mr\task.log'`r`nexit `$LASTEXITCODE"
