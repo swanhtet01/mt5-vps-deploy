@@ -8,10 +8,14 @@ Checks:
   5. Critical files: news_state.json freshness, blacklist.json present
   6. Log directory size: warn if > 1GB (daily maintenance rotates individual logs)
   7. Optional Vibe sidecar: audited commit, HALT sentinel, and weekly run freshness
+  8. Heartbeat: heartbeat.json fresh, HEALTHCHECK_URL set, pings landing
+  9. Task receipts: every receipt-writing task ran within 3 cadences and succeeded
+ 10. Installed tree: every file the last applied manifest delivered still hashes the same
 
 Outputs:
   - data_cache/vps_health.json
   - On any WARN or CRITICAL state: notify.py sends a push notification
+  - data_cache/alert_ledger.jsonl: one line per push attempt with whether it was delivered
 
 Runs every 30 minutes via MT5-VPS-Health scheduled task."""
 
@@ -35,12 +39,14 @@ from mt5_agent.profit_funded_scaling import SCHEMA as PROFIT_SCALING_SCHEMA
 # Use the shared path resolver so this runs on the VPS (C:\trading-agent) AND the dev PC,
 # instead of the old hardcoded OneDrive paths (which broke health/news/blacklist on the VPS).
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from paths import DATA_CACHE, PAPER_ROOT, NEWS_STATE_FILE, BLACKLIST_FILE, read_json, write_json_atomic  # noqa: E402
+from paths import (  # noqa: E402
+    DATA_CACHE, PAPER_ROOT, REPO_ROOT, NEWS_STATE_FILE, BLACKLIST_FILE, read_json, write_json_atomic,
+)
 
 OUT = DATA_CACHE / "vps_health.json"
 LOG_DIRS = [
     PAPER_ROOT / "gold-drift", PAPER_ROOT / "multi-drift", PAPER_ROOT / "news",
-    PAPER_ROOT / "analytics", PAPER_ROOT / "swing",
+    PAPER_ROOT / "analytics", PAPER_ROOT / "swing", PAPER_ROOT / "intraday-mr",
 ]
 NEWS_FILE = NEWS_STATE_FILE
 SCHEDULER_EVENTS = PAPER_ROOT / "analytics" / "structural-scheduler.jsonl"
@@ -53,6 +59,23 @@ VIBE_SHADOW_STATE = DATA_CACHE / "vibe_shadow_forward_state.json"
 VIBE_SHADOW_REPORT = DATA_CACHE / "vibe_shadow_forward_report.json"
 VIBE_SHADOW_MAX_AGE_MINUTES = 20.0
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
+HEARTBEAT_FILE = DATA_CACHE / "heartbeat.json"
+HEARTBEAT_MAX_AGE_MINUTES = 15.0
+HEARTBEAT_PING_FAIL_STREAK = 3
+# Run receipts written by the tasks themselves (data_cache/task_runs/<TaskName>.json) and the
+# scheduled cadence of each, in minutes. A receipt older than three cadences means the task
+# has missed at least two runs -- which Task Scheduler's Ready state never says.
+TASK_RUNS_DIR = DATA_CACHE / "task_runs"
+CADENCE_MINUTES = {
+    "MT5-IntradayMR": 30, "MT5-RemoteControl": 5, "MT5-PositionMonitor": 5,
+    "MT5-Heartbeat": 5, "MT5-GoldDrift-KillSwitch": 60, "MT5-Maintenance": 1440,
+}
+TASK_RECEIPT_MAX_CADENCES = 3
+# update.ps1's $deploy, where it records which manifest it last applied to REPO_ROOT.
+DEPLOY_ROOT = Path(os.environ.get("MT5_DEPLOY", r"C:\mt5-deploy"))
+INSTALLED_MANIFEST = DEPLOY_ROOT / "installed-manifest.json"
+ALERT_LEDGER = DATA_CACHE / "alert_ledger.jsonl"
+ALERT_LEDGER_MAX_LINES = 500
 VIBE_DENIED_TOOL_FRAGMENTS = (
     "order", "trading_", "connector", "mandate", "bash", "shell", "write", "background",
 )
@@ -65,12 +88,32 @@ def check_mt5():
         ai = mt5.account_info()
         if ai is None:
             return {"status": "CRITICAL", "reason": "account_info returned None"}
-        return {
+        ti = mt5.terminal_info()
+        live_armed = persistent_user_flag_enabled("MT5_GOLD_DRIFT_LIVE")
+        result = {
             "status": "OK",
             "login_last4": str(ai.login)[-4:], "balance": ai.balance, "equity": ai.equity,
             "trade_allowed": ai.trade_allowed if hasattr(ai, "trade_allowed") else None,
             "leverage": ai.leverage,
+            "terminal_connected": bool(ti.connected) if ti is not None else None,
+            "terminal_trade_allowed": bool(ti.trade_allowed) if ti is not None else None,
+            "live_armed": live_armed,
         }
+        # account_info answers from the terminal's cache while its broker link is down, so
+        # the checks above pass on a terminal that cannot send an order. The connection flag
+        # is what says orders can actually leave the box.
+        problems = []
+        if ti is None:
+            problems.append("terminal_info returned None")
+        elif not result["terminal_connected"]:
+            problems.append("terminal is not connected to the broker")
+        # AutoTrading off is normal on a paper box, so it only warns while live is armed:
+        # armed-but-unable is the state in which every live edge silently does nothing.
+        if live_armed and ti is not None and not result["terminal_trade_allowed"]:
+            problems.append("AutoTrading is off while live trading is armed")
+        if problems:
+            result.update(status="WARN", reason="; ".join(problems))
+        return result
     except Exception as e:
         return {"status": "CRITICAL", "reason": f"{type(e).__name__}: {e}"}
     finally:
@@ -170,7 +213,7 @@ def check_scheduled_tasks():
             "MT5-StructuralScheduler", "MT5-GoldDrift-KillSwitch", "MT5-Heartbeat",
             "MT5-Watchdog", "MT5-PositionMonitor", "MT5-ContextIngest",
             "MT5-LLMThesis", "MT5-ApplyThesis", "MT5-AutoDeploy", "MT5-VPS-Health",
-            "MT5-Maintenance",
+            "MT5-Maintenance", "MT5-IntradayMR",
         }
         if (VIBE_ROOT / "install.json").exists():
             critical.add("MT5-VibeBaseline")
@@ -373,6 +416,177 @@ def _state_age_hours(value, reference: datetime) -> float | None:
         return max((reference - stamp.astimezone(timezone.utc)).total_seconds(), 0.0) / 3600.0
     except ValueError:
         return None
+
+
+def _as_count(value) -> int:
+    try:
+        return max(int(value or 0), 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def check_heartbeat(now: datetime | None = None):
+    """Is the dead-man's switch itself alive and able to speak?
+
+    heartbeat.py is the only signal that survives the box dying, so nothing else here can
+    stand in for it -- but it can be checked from the inside: the file it writes every five
+    minutes must be fresh, it must have a HEALTHCHECK_URL to ping (without one it is a local
+    file and nothing more), and its pings must actually be landing. Numbers stay in the
+    payload; the reason is what maybe_notify dedups on.
+    """
+    reference = now or datetime.now(tz=timezone.utc)
+    result = {"status": "OK", "file": str(HEARTBEAT_FILE)}
+    try:
+        if not HEARTBEAT_FILE.exists():
+            result.update(status="WARN", reason="heartbeat has never written its state file")
+            return result
+        state = read_json(HEARTBEAT_FILE, default={})
+        if not isinstance(state, dict) or not state:
+            result.update(status="WARN", reason="heartbeat state file is unreadable")
+            return result
+        problems = []
+        age_hours = _state_age_hours(state.get("ts"), reference)
+        if age_hours is None:
+            problems.append("heartbeat timestamp is missing or invalid")
+        else:
+            result["age_minutes"] = round(age_hours * 60.0, 1)
+            if age_hours * 60.0 > HEARTBEAT_MAX_AGE_MINUTES:
+                problems.append("heartbeat state file is stale")
+        url_set = state.get("url_set", state.get("healthcheck_url_set"))
+        result["url_set"] = bool(url_set)
+        if not url_set:
+            problems.append("heartbeat has no HEALTHCHECK_URL and cannot reach healthchecks.io")
+        ping_fail_streak = _as_count(state.get("ping_fail_streak"))
+        result["ping_fail_streak"] = ping_fail_streak
+        result["unhealthy_streak"] = _as_count(state.get("unhealthy_streak"))
+        result["last_ping_utc"] = state.get("last_ping_utc")
+        result["mt5_status"] = state.get("mt5_status")
+        if ping_fail_streak >= HEARTBEAT_PING_FAIL_STREAK:
+            problems.append("heartbeat pings to healthchecks.io keep failing")
+        if problems:
+            result.update(status="WARN", reason="; ".join(problems))
+        return result
+    except Exception as e:
+        return {"status": "WARN", "reason": f"{type(e).__name__}: {e}", "file": str(HEARTBEAT_FILE)}
+
+
+def check_task_receipts(now: datetime | None = None):
+    """Did each scheduled task actually run, finish, and succeed recently?
+
+    Task Scheduler reports Ready for a task that has failed every run for a week, and
+    LastTaskResult is only as honest as the script's exit code. The receipts under
+    data_cache/task_runs are written by the tasks themselves at start and finish, so
+    "stale" here means the task did not RUN and "failed" means it said so itself. A task
+    that has never written one warns too, on purpose: the receipt is the proof that the
+    wiring exists, and absence of proof is the finding. Exit codes and ages go in the
+    payload; the reason names the task and the exception TYPE only.
+    """
+    reference = now or datetime.now(tz=timezone.utc)
+    result = {"status": "OK", "dir": str(TASK_RUNS_DIR), "tasks": {}}
+    try:
+        never_run, stale, failed, unreadable = [], [], [], []
+        for task, cadence in CADENCE_MINUTES.items():
+            entry = {"cadence_minutes": cadence}
+            result["tasks"][task] = entry
+            path = TASK_RUNS_DIR / f"{task}.json"
+            if not path.exists():
+                entry["state"] = "never run"
+                never_run.append(task)
+                continue
+            receipt = read_json(path, default={})
+            if not isinstance(receipt, dict) or not receipt:
+                entry["state"] = "unreadable"
+                unreadable.append(task)
+                continue
+            finished = receipt.get("finished_utc")
+            ok = receipt.get("ok")
+            entry.update(
+                ok=ok, exit_code=receipt.get("exit_code"), mt5_init=receipt.get("mt5_init"),
+                duration_s=receipt.get("duration_s"), finished=finished is not None,
+            )
+            # A run still in flight has no finished_utc; its age is measured from the start,
+            # so a task that hung past three cadences reads as stale rather than as running.
+            age_hours = _state_age_hours(finished or receipt.get("started_utc"), reference)
+            if age_hours is None:
+                entry["state"] = "invalid timestamp"
+                unreadable.append(task)
+            else:
+                entry["age_minutes"] = round(age_hours * 60.0, 1)
+                if age_hours * 60.0 > cadence * TASK_RECEIPT_MAX_CADENCES:
+                    entry["state"] = "stale"
+                    stale.append(task)
+            errors = receipt.get("errors") or []
+            error_types = sorted({
+                str(item.get("type") or "?") for item in errors if isinstance(item, dict)
+            })
+            entry["error_types"] = error_types
+            if errors or ok is False or (finished is not None and ok is not True):
+                entry["state"] = "failed"
+                failed.append(task + (f" ({'/'.join(error_types)})" if error_types else ""))
+            entry.setdefault("state", "running" if finished is None else "ok")
+        result.update(never_run=never_run, stale=stale, failed=failed, unreadable=unreadable)
+        problems = []
+        if never_run:
+            problems.append("never run: " + ", ".join(never_run))
+        if stale:
+            problems.append("stale: " + ", ".join(stale))
+        if failed:
+            problems.append("failed: " + ", ".join(failed))
+        if unreadable:
+            problems.append("unreadable: " + ", ".join(unreadable))
+        if problems:
+            result.update(status="WARN", reason="task receipts " + "; ".join(problems))
+        return result
+    except Exception as e:
+        return {"status": "WARN", "reason": f"{type(e).__name__}: {e}", "dir": str(TASK_RUNS_DIR)}
+
+
+def check_installed_tree():
+    """Does the tree on disk still match what the last applied manifest delivered?
+
+    update.ps1 verifies every file's sha256 as it copies it, then nothing looks again. A
+    file edited by hand on the box, a partial robocopy from a newer release bundle, or a
+    file that simply vanished all leave the deploy log saying the last apply succeeded.
+    The count and the file names go in the payload so the dedup key stays stable while
+    the drift grows.
+    """
+    result = {"status": "OK", "manifest": str(INSTALLED_MANIFEST)}
+    try:
+        if not INSTALLED_MANIFEST.exists():
+            result.update(status="WARN", reason="no manifest has ever been applied")
+            return result
+        manifest = read_json(INSTALLED_MANIFEST, default={})
+        if not isinstance(manifest, dict):
+            manifest = {}
+        result["deploy_sha"] = manifest.get("deploy_sha")
+        result["applied_utc"] = manifest.get("applied_utc")
+        files = manifest.get("files")
+        if not isinstance(files, list) or not files:
+            result.update(status="WARN", reason="installed manifest has no file list")
+            return result
+        changed, missing, invalid = [], [], []
+        for item in files:
+            destination = str(item.get("destination") or "") if isinstance(item, dict) else ""
+            expected = str(item.get("sha256") or "").strip().lower() if isinstance(item, dict) else ""
+            if not destination or not expected:
+                invalid.append(destination or "?")
+                continue
+            path = Path(destination)
+            if not path.is_absolute():
+                path = REPO_ROOT / path
+            if not path.is_file():
+                missing.append(destination)
+            elif _file_sha256(path) != expected:
+                changed.append(destination)
+        result.update(
+            checked=len(files), changed=changed, missing=missing, invalid_entries=invalid,
+            differing_count=len(changed) + len(missing) + len(invalid),
+        )
+        if changed or missing or invalid:
+            result.update(status="WARN", reason="installed tree differs from deployed manifest")
+        return result
+    except Exception as e:
+        return {"status": "WARN", "reason": f"{type(e).__name__}: {e}", "manifest": str(INSTALLED_MANIFEST)}
 
 
 def check_vibe_sidecar(now: datetime | None = None):
@@ -704,23 +918,91 @@ def check_alerting():
     push channel is exactly what is unavailable.
     """
     topic = os.environ.get("NTFY_TOPIC", "").strip()
+    healthcheck_url_set = bool(os.environ.get("HEALTHCHECK_URL", "").strip())
     if not topic:
-        return {"status": "CRITICAL", "configured": False,
+        return {"status": "CRITICAL", "configured": False, "healthcheck_url_set": healthcheck_url_set,
                 "reason": "NTFY_TOPIC is unset: every alert from this VPS reaches nobody"}
     if "XYZ" in topic:
-        return {"status": "CRITICAL", "configured": False,
+        return {"status": "CRITICAL", "configured": False, "healthcheck_url_set": healthcheck_url_set,
                 "reason": "NTFY_TOPIC still holds the placeholder topic; notify.py refuses to send"}
-    return {"status": "OK", "configured": True}
+    if not healthcheck_url_set:
+        # The push channel works, but the dead-man's switch is dead weight: heartbeat.py
+        # writes its local file and never pings, so a box that dies is silent again.
+        return {"status": "WARN", "configured": True, "healthcheck_url_set": False,
+                "reason": "HEALTHCHECK_URL is unset: the heartbeat never reaches healthchecks.io"}
+    return {"status": "OK", "configured": True, "healthcheck_url_set": True}
 
 
-def _push_health(msg: str):
+def _ledger_entries() -> list[dict]:
+    if not ALERT_LEDGER.exists():
+        return []
+    entries = []
+    for line in ALERT_LEDGER.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            item = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(item, dict):
+            entries.append(item)
+    return entries
+
+
+def _ledger_append(entry: dict) -> None:
+    """Append one delivery record, keeping only the newest ALERT_LEDGER_MAX_LINES."""
+    lines = [json.dumps(item, default=str) for item in _ledger_entries()]
+    lines.append(json.dumps(entry, default=str))
+    lines = lines[-ALERT_LEDGER_MAX_LINES:]
+    ALERT_LEDGER.parent.mkdir(parents=True, exist_ok=True)
+    tmp = ALERT_LEDGER.with_name(f"{ALERT_LEDGER.name}.{os.getpid()}.tmp")
+    tmp.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    os.replace(tmp, ALERT_LEDGER)
+
+
+def _undelivered_since_last_delivery() -> tuple[int, str | None]:
+    """How many pushes went nowhere since one last got through, and when that started."""
+    count, since = 0, None
+    for item in _ledger_entries():
+        if item.get("delivered"):
+            count, since = 0, None
+        else:
+            count += 1
+            if since is None:
+                since = item.get("ts")
+    return count, since
+
+
+def _push_health(msg: str, severity: str = "INFO") -> bool:
+    """Run notify.py and record whether anything was actually delivered.
+
+    notify.py exits 1 when no channel delivered, so its return code is the receipt. Every
+    attempt lands in alert_ledger.jsonl; while earlier pushes went nowhere, the next message
+    carries a count of them, so an outage in the alert path is itself reported the moment
+    the path comes back instead of being swallowed. The count is in the body only -- the
+    dedup key is built from the check reasons before this is called.
+    """
     notify_path = Path(__file__).parent / "notify.py"
-    if not notify_path.exists():
-        return
+    ts = datetime.now(tz=timezone.utc).isoformat()
     try:
-        subprocess.run([sys.executable, str(notify_path), msg], timeout=10, capture_output=True)
+        undelivered, since = _undelivered_since_last_delivery()
+    except Exception:
+        undelivered, since = 0, None
+    if undelivered:
+        msg = f"{undelivered} alert(s) undelivered since {since} | " + msg
+    delivered = False
+    if notify_path.exists():
+        try:
+            proc = subprocess.run([sys.executable, str(notify_path), msg], timeout=10, capture_output=True)
+            delivered = proc.returncode == 0
+        except Exception:
+            delivered = False
+    try:
+        _ledger_append({"ts": ts, "severity": severity, "delivered": delivered})
     except Exception:
         pass
+    return delivered
 
 
 def maybe_notify(report: dict):
@@ -746,7 +1028,7 @@ def maybe_notify(report: dict):
 
     if severity == "OK":
         if state.get("severity") and state.get("severity") != "OK":
-            _push_health("VPS recovered: all health checks green again.")
+            _push_health("VPS recovered: all health checks green again.", severity="OK")
         write_json_atomic(state_file, {"severity": "OK", "ts": now, "key": ""})
         return
 
@@ -759,7 +1041,7 @@ def maybe_notify(report: dict):
     cooldown = 3600 if severity == "CRITICAL" else 6 * 3600
     if key == state.get("key") and (now - state.get("ts", 0)) < cooldown:
         return  # identical alert within cooldown -> suppress (anti-spam)
-    _push_health(f"[VPS {severity}] " + " | ".join(reasons[:3]))
+    _push_health(f"[VPS {severity}] " + " | ".join(reasons[:3]), severity=severity)
     write_json_atomic(state_file, {"severity": severity, "ts": now, "key": key})
 
 
@@ -775,6 +1057,9 @@ def main():
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
         "alerting": check_alerting(),
+        "heartbeat": check_heartbeat(),
+        "task_receipts": check_task_receipts(),
+        "installed_tree": check_installed_tree(),
         "freshness": check_freshness(),
         "log_sizes": check_log_sizes(),
     }
@@ -794,7 +1079,8 @@ if __name__ == "__main__":
         # failure is not a monitor. Push first (best effort), then fail the task honestly.
         print(f"vps_health FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
         try:
-            _push_health(f"[VPS CRITICAL] health monitor itself failed: {type(exc).__name__}: {exc}")
+            _push_health(f"[VPS CRITICAL] health monitor itself failed: {type(exc).__name__}: {exc}",
+                         severity="CRITICAL")
         except Exception:
             pass
         sys.exit(1)
