@@ -15,6 +15,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
+# Deployed script copies (position_monitor.py, paths.py, ...) ship under hotfix/scripts.
+sys.path.insert(1, str(REPO_ROOT / "hotfix" / "scripts"))
 
 
 def _pin_mt5_agent_to_this_repo() -> None:
