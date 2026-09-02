@@ -81,6 +81,30 @@ function New-MT5TaskIfMissing {
     Set-MT5TaskReliability -TaskName $TaskName -ExecutionMinutes $ExecutionMinutes
 }
 
+function Write-InstalledManifest {
+    param(
+        [Parameter(Mandatory=$true)]$Manifest,
+        [Parameter(Mandatory=$true)][string]$DeploySha,
+        [Parameter(Mandatory=$true)][string]$Path
+    )
+    # Drift-detection record read by vps_health.py: which commit's manifest is on disk and
+    # the sha256 each destination was verified against. Built from the manifest object
+    # Sync-Hotfixes already parsed and verified -- nothing is re-downloaded or re-hashed.
+    # Schema: {"deploy_sha", "applied_utc", "files": [{"destination", "sha256"}]}.
+    $record = [ordered]@{
+        deploy_sha  = $DeploySha
+        applied_utc = [DateTime]::UtcNow.ToString('s') + '+00:00'
+        files       = @($Manifest.files | ForEach-Object {
+            [ordered]@{ destination = [string]$_.destination; sha256 = ([string]$_.sha256).ToLowerInvariant() }
+        })
+    }
+    # UTF-8 without BOM like every other file this script generates; staged then renamed so
+    # a health check that runs mid-write never reads a truncated record.
+    $staged = "$Path.tmp"
+    [System.IO.File]::WriteAllText($staged, (ConvertTo-Json -InputObject $record -Depth 5), (New-Object System.Text.UTF8Encoding($false)))
+    Move-Item $staged $Path -Force
+}
+
 # Resolve one immutable commit. Auto-deploy supplies this; interactive updates resolve main.
 $deployRef = $env:MT5_DEPLOY_SHA
 if ($deployRef -notmatch '^[0-9a-fA-F]{40}$') {
@@ -170,6 +194,8 @@ function Sync-Hotfixes {
             throw "hotfix apply failed and was rolled back to the previous tree: $reason"
         }
         Write-Host "  [0] applied $($planned.Count) verified hotfixes as one batch" -ForegroundColor Green
+        # Only a fully committed batch is recorded; every failure path above throws first.
+        $script:appliedManifest = $manifest
     } finally {
         Remove-Item $staging, $backup -Recurse -Force -ErrorAction SilentlyContinue
     }
@@ -205,6 +231,10 @@ if ($bundleOk) {
     # Re-apply verified files after the old release bundle has copied over the tree.
     Sync-Hotfixes
 }
+# Record what is now installed, and only here: every Sync-Hotfixes call above throws on any
+# failure and aborts the script before this line, so a failed or rolled-back sync can never
+# leave a fresh installed-manifest.json claiming success.
+Write-InstalledManifest -Manifest $script:appliedManifest -DeploySha $deployRef -Path "$deploy\installed-manifest.json"
 Write-Host "  [2] release bundle refreshed where available; commit $($deployRef.Substring(0,8)) hotfixes verified" -ForegroundColor Green
 
 # 2b) ensure runtime deps in the venv. WARN (don't abort) so a transient pip/network hiccup
