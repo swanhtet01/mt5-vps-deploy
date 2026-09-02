@@ -5,10 +5,19 @@ import json
 import os
 import re
 import shutil
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from paths import DATA_CACHE, PAPER_ROOT, write_json_atomic
+try:
+    from task_receipt import run_receipt
+except ImportError:  # helper not delivered: bookkeeping must never stop the task
+    print("WARN: task_receipt.py missing; running without a run receipt", file=sys.stderr)
+    from contextlib import nullcontext as _nullcontext
+
+    def run_receipt(task, directory=None):
+        return _nullcontext(None)
 
 
 MAX_LOG_BYTES = 25 * 1024 * 1024
@@ -174,4 +183,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with run_receipt("MT5-Maintenance"):
+        main()
