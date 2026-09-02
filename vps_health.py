@@ -259,6 +259,27 @@ def check_freshness():
     else:
         out["news_status"] = "WARN"
         out["news_error"] = "news_state.json missing"
+    # MT5-SymbolScanner is a 120-minute weekly task whose output nothing was checking, so a
+    # scan that stopped producing results was invisible. That is not hypothetical: the scan
+    # pulls history from Yahoo via yfinance, and Yahoo rate-limits datacenter IPs -- it 429s
+    # from this project's sandbox, and the VPS is a datacenter IP too. A silently dead scan
+    # means no new edges are ever discovered while the task keeps reporting Ready.
+    # Threshold is 8 days: the task runs weekly, so anything older has MISSED a run. On a
+    # fresh box the file is legitimately absent until the first Sunday; that WARNs, which is
+    # honest, and clears itself after one scan.
+    scan_summary = DATA_CACHE / "edge_discovery_summary.json"
+    if scan_summary.exists():
+        try:
+            age_days = (now.timestamp() - scan_summary.stat().st_mtime) / 86400.0
+            out["edge_scan_age_days"] = round(age_days, 1)
+            out["edge_scan_status"] = "WARN" if age_days > 8 else "OK"
+        except OSError as exc:
+            out["edge_scan_status"] = "WARN"
+            out["edge_scan_error"] = str(exc)
+    else:
+        out["edge_scan_status"] = "WARN"
+        out["edge_scan_error"] = "edge_discovery_summary.json missing (scan has never produced output)"
+
     out["blacklist_present"] = BLACKLIST_FILE.exists()
     # maybe_notify only inspects a top-level "status", so without this the whole check was
     # unalertable: a missing or stale news_state.json set news_status and contributed nothing
@@ -269,6 +290,8 @@ def check_freshness():
         problems.append("news state " + str(out.get("news_error", "is stale")))
     if not out["blacklist_present"]:
         problems.append("blacklist.json missing")
+    if out.get("edge_scan_status") == "WARN":
+        problems.append("weekly edge scan " + str(out.get("edge_scan_error", "output is stale")))
     if problems:
         out["status"] = "WARN"
         out["reason"] = "; ".join(problems)
