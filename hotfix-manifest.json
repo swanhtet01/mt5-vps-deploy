@@ -14,7 +14,7 @@
     {
       "source": "killswitch_monitor.py",
       "destination": "scripts/killswitch_monitor.py",
-      "sha256": "c80278dc243f4e54b7de178f3ac9111ae93b22a80bd268457fad17dc718eed7d"
+      "sha256": "f9c0c0bf4f89c57e5990e99cf5980c460bf1668fe7743452eb377b40ac080e61"
     },
     {
       "source": "heartbeat.py",
@@ -24,7 +24,7 @@
     {
       "source": "remote_control.py",
       "destination": "scripts/remote_control.py",
-      "sha256": "305a33ac8333b8648bec7faeb6b6205ff1647aee8236acb0c12057d20b8506e8"
+      "sha256": "0422a15c609476a982dfa4db9b4ae896f2211b7ce16d7716cfe48c6cc4ee2702"
     },
     {
       "source": "hotfix/scripts/gold_drift_live.py",
@@ -44,7 +44,7 @@
     {
       "source": "hotfix/scripts/intraday_mean_rev.py",
       "destination": "scripts/intraday_mean_rev.py",
-      "sha256": "6d04fbbc29bd4c306f414425c7742f3db5c0db6ba56dd019ac9197957b22f006"
+      "sha256": "2b5fc1932949b83415b7d85ee6008eb606362368d565ad34d6d168ff8822ceb0"
     },
     {
       "source": "hotfix/scripts/structural_scheduler.py",
@@ -89,7 +89,7 @@
     {
       "source": "hotfix/scripts/vps_maintenance.py",
       "destination": "scripts/vps_maintenance.py",
-      "sha256": "dd9aefcb78c41ed3224224bbf8809e0a2bdcf9aa6fe4e54d736ee98bf96552e4"
+      "sha256": "e917ff923715f4fc117b4d29e9e5b8f5b5a32a1d821f0accb86cb3ed33074c1b"
     },
     {
       "source": "hotfix/src/mt5_agent/mt5_execution.py",
@@ -209,7 +209,7 @@
     {
       "source": "hotfix/scripts/position_monitor.py",
       "destination": "scripts/position_monitor.py",
-      "sha256": "21d741ab1bf5832936ba6701c04b064f415d84c21bd846b086e1b5f4a15b14c8"
+      "sha256": "e73ddd134431fd6978ad52c06ec249b7b1eb66094e480d99c97228ced45faba3"
     },
     {
       "source": "hotfix/scripts/self_improver.py",
@@ -300,6 +300,16 @@
       "source": "hotfix/src/mt5_agent/dashboard_metrics.py",
       "destination": "src/mt5_agent/dashboard_metrics.py",
       "sha256": "6206a688d6783ef021fd2ad4b3622bbd43d2c18c0caa42321abc8f2a67e658ac"
+    },
+    {
+      "source": "hotfix/scripts/task_receipt.py",
+      "destination": "scripts/task_receipt.py",
+      "sha256": "ce09a31766f2fd6aa20f0ad52e208fc7df3a46c2b2a5743cecbf6c8d88113d55"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/slippage_analyzer.py",
+      "destination": "src/mt5_agent/slippage_analyzer.py",
+      "sha256": "97e0c50770b02c941b06cee23145526fc176982410c7652d6b537f06d91a00d8"
     }
   ]
 }
