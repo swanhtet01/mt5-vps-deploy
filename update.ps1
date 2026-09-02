@@ -7,8 +7,11 @@ $ErrorActionPreference = 'Stop'
 Write-Host ''
 Write-Host '==== MT5 VPS UPDATE ====' -ForegroundColor Cyan
 if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    Write-Host 'NOT admin. Open Start -> Windows PowerShell (Admin) and paste the command again.' -ForegroundColor Red
-    return
+    # `throw`, not `return`. auto_deploy.ps1 runs this file through Invoke-Expression, and a
+    # `return` there is NOT a terminating error: it unwinds to the caller with no exception,
+    # so auto_deploy's catch never fired, it recorded the commit as successfully deployed and
+    # never retried it. A whole deploy chain could report green while installing nothing.
+    throw 'NOT admin. Open Start -> Windows PowerShell (Admin) and paste the command again.'
 }
 
 $deploy = 'C:\mt5-deploy'
@@ -225,7 +228,11 @@ Invoke-WebRequest "$rawBase/auto_deploy.ps1" `
     -OutFile $adScript -UseBasicParsing -TimeoutSec 30
 $adBody = "& '$adScript' *>> 'C:\mt5-paper\analytics\auto-deploy.log'`r`nexit `$LASTEXITCODE"
 $adAction = New-HiddenTaskAction -Name 'auto-deploy' -Body $adBody
-schtasks /create /tn 'MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /it /f | Out-Null
+# /rl HIGHEST: this task re-runs update.ps1, which refuses to do anything without admin.
+# Without it the task inherits a filtered token under UAC admin-approval mode and every
+# self-update is a no-op. Every other task here does work that does not need elevation;
+# this one cannot do its job without it.
+schtasks /create /tn 'MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /it /rl HIGHEST /f | Out-Null
 Set-MT5TaskReliability -TaskName 'MT5-AutoDeploy' -ExecutionMinutes 12
 Set-Content "$deploy\last_deploy_sha.txt" $deployRef -NoNewline
 Write-Host '  [5] MT5-AutoDeploy scheduled (verified hotfix commits every 15 min)' -ForegroundColor Green
@@ -466,6 +473,11 @@ if (-not $env:MT5_AUTODEPLOY) {
         & $py "$repo\scripts\notify.py" 'Update done - auto-deploy + scanner + LLM thesis verified' 2>$null
     }
 }
+
+# Completion marker, written only if execution actually reached the end of this file.
+# auto_deploy.ps1 refuses to record a deploy as successful unless this names the commit it
+# just deployed -- so any early exit, silent or not, is retried instead of being banked.
+Set-Content "$deploy\last_update_complete.txt" $deployRef -NoNewline
 
 Write-Host ''
 Write-Host '==== UPDATE COMPLETE ====' -ForegroundColor Green
