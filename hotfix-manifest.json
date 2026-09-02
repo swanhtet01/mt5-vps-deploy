@@ -44,7 +44,7 @@
                   {
                       "source":  "hotfix/scripts/intraday_mean_rev.py",
                       "destination":  "scripts/intraday_mean_rev.py",
-                      "sha256":  "9a14bd21a247a889ab0da2d0589ae35100bed1e8b6a78166cdb137bb13c6ed9d"
+                      "sha256":  "6d04fbbc29bd4c306f414425c7742f3db5c0db6ba56dd019ac9197957b22f006"
                   },
                   {
                       "source":  "hotfix/scripts/structural_scheduler.py",
