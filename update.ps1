@@ -54,6 +54,30 @@ function Set-MT5TaskReliability {
     }
 }
 
+function New-MT5TaskIfMissing {
+    param(
+        [Parameter(Mandatory=$true)][string]$TaskName,
+        [Parameter(Mandatory=$true)][string]$Action,
+        [Parameter(Mandatory=$true)][string[]]$Schedule,
+        [int]$ExecutionMinutes = 10
+    )
+    # Create only when absent. An existing task keeps whatever schedule is already
+    # running on the box -- this must never re-point a working safety task.
+    # Get-ScheduledTask rather than `schtasks /query` + $LASTEXITCODE: on PowerShell 7.4+
+    # a failing native command throws under $ErrorActionPreference='Stop', and "missing" is
+    # this function's normal path. The module is already used by Set-MT5TaskReliability.
+    $existing = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($existing) {
+        Write-Host "  kept existing $TaskName (schedule untouched)" -ForegroundColor Gray
+    } else {
+        schtasks /create /tn $TaskName /tr $Action $Schedule /it /f | Out-Null
+        if ($LASTEXITCODE) { Write-Host "  WARN: $TaskName create failed (continuing)" -ForegroundColor Yellow }
+        else { Write-Host "  created missing $TaskName" -ForegroundColor Green }
+    }
+    schtasks /change /tn $TaskName /enable *> $null
+    Set-MT5TaskReliability -TaskName $TaskName -ExecutionMinutes $ExecutionMinutes
+}
+
 # Resolve one immutable commit. Auto-deploy supplies this; interactive updates resolve main.
 $deployRef = $env:MT5_DEPLOY_SHA
 if ($deployRef -notmatch '^[0-9a-fA-F]{40}$') {
@@ -140,7 +164,12 @@ if ($LASTEXITCODE) { Write-Host '  WARN: pip install had errors (continuing)' -F
 else { Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, pandas, psutil)' -ForegroundColor Green }
 
 # 2c) mirror NTFY_TOPIC to Machine scope so SYSTEM-context tasks (e.g. a boot alert) can
-#     also push to the phone, and so notify.py's registry fallback always finds it.
+#     also push to the phone. NOTE: notify.py has NO registry fallback -- it reads
+#     os.environ["NTFY_TOPIC"] and nothing else. This works because Windows materialises
+#     User/Machine env vars into a newly-launched task's environment, not because notify.py
+#     looks them up. If the variable was never set at either scope, notify.py falls back to a
+#     DEFAULT_TOPIC still containing "XYZ", refuses to send, and every alert on this box
+#     silently reaches nobody. vps_health.py's check_alerting reports exactly that case.
 $ntfyUser = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
 if ($ntfyUser) { [Environment]::SetEnvironmentVariable('NTFY_TOPIC', $ntfyUser, 'Machine') }
 
@@ -238,8 +267,30 @@ $apAction = New-HiddenTaskAction -Name 'apply-thesis' -Body $apBody
 schtasks /create /tn 'MT5-ApplyThesis' /tr $apAction /sc daily /st 02:30 /it /f | Out-Null
 if ($LASTEXITCODE) { Write-Host '  WARN: MT5-ApplyThesis create failed (continuing)' -ForegroundColor Yellow }
 Set-MT5TaskReliability -TaskName 'MT5-ApplyThesis' -ExecutionMinutes 15
-# Defensive: ensure the kill-switch (cumulative-drawdown brake) is ENABLED, not just present.
-schtasks /change /tn 'MT5-GoldDrift-KillSwitch' /enable 2>$null | Out-Null
+# The cumulative-drawdown brake and the self-watch have to EXIST, not merely be enabled.
+# tasks.ps1 lists both as critical, but this installer only ever tried to /enable the kill
+# switch -- and /enable silently no-ops on a task that was never created, so a VPS rebuilt
+# from this repo alone ran with no drawdown brake and no health watch at all. Both scripts
+# are already delivered by hotfix-manifest.json; only the schedules were missing.
+# Cadences are the ones the scripts themselves document, not invented here.
+$ksBody = "& '$py' '$repo\scripts\killswitch_monitor.py' *>> 'C:\mt5-paper\analytics\killswitch.log'`r`nexit `$LASTEXITCODE"
+$ksAction = New-HiddenTaskAction -Name 'killswitch' -Body $ksBody
+New-MT5TaskIfMissing -TaskName 'MT5-GoldDrift-KillSwitch' -Action $ksAction -Schedule @('/sc','hourly') -ExecutionMinutes 10
+
+$vhBody = "& '$py' '$repo\scripts\vps_health.py' *>> 'C:\mt5-paper\analytics\vps-health.log'`r`nexit `$LASTEXITCODE"
+$vhAction = New-HiddenTaskAction -Name 'vps-health' -Body $vhBody
+New-MT5TaskIfMissing -TaskName 'MT5-VPS-Health' -Action $vhAction -Schedule @('/sc','minute','/mo','30') -ExecutionMinutes 10
+
+# Dead-man's switch. Every other check here runs ON the VPS, so none of them can tell you the
+# VPS itself went dark (crashed, lost its network, Python broken). heartbeat.py pings
+# healthchecks.io every 5 min and that service alerts when the pings STOP -- the only signal
+# in this system that survives the box dying. It always exits 0 (a transient network blip must
+# not flag the task red), and with no HEALTHCHECK_URL set it just writes the local file, so
+# scheduling it is safe before anyone configures the URL.
+# NOTE: set HEALTHCHECK_URL as a MACHINE-level env var, or the task will never ping.
+$hbBody = "& '$py' '$repo\scripts\heartbeat.py' *>> 'C:\mt5-paper\analytics\heartbeat.log'`r`nexit `$LASTEXITCODE"
+$hbAction = New-HiddenTaskAction -Name 'heartbeat' -Body $hbBody
+New-MT5TaskIfMissing -TaskName 'MT5-Heartbeat' -Action $hbAction -Schedule @('/sc','minute','/mo','5') -ExecutionMinutes 5
 # Intraday mean-reversion (GOLD+USDJPY RSI fade) -- every 30 min during London/NY sessions.
 # Runs PAPER-ONLY until MT5_GOLD_DRIFT_LIVE=1 is set; same live flag as structural edges.
 $mrBody = "& '$py' '$repo\scripts\intraday_mean_rev.py' *>> 'C:\mt5-paper\intraday-mr\task.log'`r`nexit `$LASTEXITCODE"
