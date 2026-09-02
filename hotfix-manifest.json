@@ -214,7 +214,7 @@
                   {
                       "source":  "hotfix/scripts/self_improver.py",
                       "destination":  "scripts/self_improver.py",
-                      "sha256":  "6ca85219e43c499c01c32ed97f7f1fb39d17ed824c5e394d9a2bc9d9be02baab"
+                      "sha256":  "bc9660a84b5998b2982716d640f1d862edd75ad6651ce15e808f2f4f21efadee"
                   },
                   {
                       "source":  "hotfix/scripts/swing_trader.py",
