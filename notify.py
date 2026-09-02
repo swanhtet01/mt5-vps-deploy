@@ -153,10 +153,10 @@ def build_daily_summary() -> tuple[str, str]:
         mt5.shutdown()
 
 
-def main():
+def main() -> int:
     if len(sys.argv) < 2:
         print("usage: notify.py <message>  OR  notify.py daily-summary  OR  notify.py test")
-        sys.exit(1)
+        return 1
     arg = sys.argv[1]
     if arg == "daily-summary":
         title, body = build_daily_summary()
@@ -168,7 +168,15 @@ def main():
     ok_webhook = send_webhook({"content": f"**{title}**\n{body}"})
     ok_tg = send_telegram(body, title=title)
     print(f"ntfy={'ok' if ok_ntfy else 'skip'}  webhook={'ok' if ok_webhook else 'skip'}  telegram={'ok' if ok_tg else 'skip'}")
+    if not (ok_ntfy or ok_webhook or ok_tg):
+        # A push that reached nobody must not look like success. Task Scheduler only sees
+        # this exit code (LastTaskResult), and vps_health._push_health reads it as the
+        # delivery receipt for its alert ledger -- exit 0 here was how every alert could
+        # quietly reach nobody while the whole system reported green.
+        print("notify: no channel delivered", file=sys.stderr)
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
