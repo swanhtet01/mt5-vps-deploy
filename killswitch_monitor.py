@@ -168,8 +168,21 @@ def summarize_losses(deals: list, history_window: FeedHistoryWindow) -> dict[str
 
 def main():
     if not mt5.initialize():
-        print(f"killswitch: mt5.initialize failed: {mt5.last_error()} (skipping this cycle)", file=sys.stderr)
-        return
+        # Loud, not silent. This is the drawdown brake: if MT5 is down it is not "skipping a
+        # cycle", it is INERT -- no threshold can be evaluated and nothing can be disarmed.
+        # Returning here wrote nothing to killswitch.jsonl and exited 0, so the task read
+        # Ready forever and the log had no gap to notice. An event plus a non-zero exit make
+        # a blind brake visible to both the JSONL and Task Scheduler's LastTaskResult.
+        error = str(mt5.last_error())
+        print(f"killswitch: mt5.initialize failed: {error} (brake is INERT this cycle)",
+              file=sys.stderr)
+        append({
+            "event": "killswitch_inert",
+            "ts": datetime.now(tz=timezone.utc).isoformat(),
+            "reason": "mt5.initialize failed",
+            "error": error,
+        })
+        sys.exit(1)
     try:
         now = datetime.now(tz=timezone.utc)
         ai = mt5.account_info()

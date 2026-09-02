@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import re
 import os
 import shutil
 import sys
@@ -113,6 +114,48 @@ def check_memory():
         return {"status": "WARN", "reason": str(e)}
 
 
+# LastTaskResult values that are NOT failures: success, currently running, and never yet run
+# (0x41301 / 0x41303). A fresh install legitimately reports "not yet run" for a while.
+_BENIGN_TASK_RESULTS = {0, 267009, 267011}
+
+
+def task_last_results():
+    """Map MT5-* task name -> LastTaskResult (its last EXIT CODE).
+
+    schtasks /query reports Ready/Running/Disabled -- the SCHEDULE state, not the outcome.
+    A task that has exited non-zero on every run for a week still reads Ready, which is
+    exactly how a broken safety script stays invisible: killswitch_monitor.py and this file
+    both exit 1 on failure now, and nothing was reading those exit codes.
+
+    Get-ScheduledTaskInfo is used rather than `schtasks /query /v`, whose column HEADERS are
+    localised -- matching on the string "Last Result" would silently find nothing on a
+    non-English box, which is the same class of silent failure being fixed here. status.ps1
+    already reads LastTaskResult this way.
+    """
+    script = (
+        "Get-ScheduledTask -TaskName 'MT5-*' -ErrorAction SilentlyContinue | "
+        "Get-ScheduledTaskInfo | "
+        "Select-Object TaskName, LastTaskResult | ConvertTo-Json -Compress"
+    )
+    proc = subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+        capture_output=True, text=True, timeout=25,
+    )
+    if proc.returncode != 0 or not proc.stdout.strip():
+        return {}
+    payload = json.loads(proc.stdout)
+    # ConvertTo-Json emits a bare object when there is exactly one task, a list otherwise.
+    if isinstance(payload, dict):
+        payload = [payload]
+    results = {}
+    for row in payload:
+        name = str(row.get("TaskName", "")).lstrip("\\")
+        code = row.get("LastTaskResult")
+        if name and isinstance(code, int):
+            results[name] = code
+    return results
+
+
 def check_scheduled_tasks():
     try:
         result = subprocess.run(
@@ -148,18 +191,50 @@ def check_scheduled_tasks():
                     not_ready.append(name)
         ready = {item["name"] for item in mt5_tasks if item["status"] in ("Ready", "Running")}
         critical_down = sorted(critical - ready)
+
+        # Being scheduled is not the same as working. Read the last exit code too, so a
+        # critical task that fires on time and fails every single time is not reported OK.
+        try:
+            last_results = task_last_results()
+        except Exception as exc:  # never let the outcome probe break the state check
+            last_results = {}
+            failing = []
+            probe_error = f"{type(exc).__name__}: {exc}"
+        else:
+            probe_error = None
+            failing = sorted(
+                name for name, code in last_results.items()
+                if name in critical and code not in _BENIGN_TASK_RESULTS
+            )
+
+        problems = []
+        if probe_error:
+            # Could not read the outcomes at all. Reporting OK here would be the same
+            # mistake this probe exists to correct -- "we did not check" is not "it is fine".
+            problems.append("cannot read task exit codes")
         if critical_down:
-            return {
+            problems.append("critical task(s) not Ready: " + ", ".join(critical_down))
+        if failing:
+            problems.append("critical task(s) failing their last run: " + ", ".join(
+                f"{name} (exit {last_results[name]})" for name in failing))
+
+        if problems:
+            out = {
                 "status": "WARN",
                 "total": len(mt5_tasks),
-                "reason": "critical task(s) not Ready: " + ", ".join(critical_down),
+                "reason": "; ".join(problems),
                 "critical_down": critical_down,
+                "critical_failing": failing,
                 "disabled": not_ready,
             }
+            if probe_error:
+                out["last_result_probe_error"] = probe_error
+            return out
         return {
             "status": "OK",
             "total": len(mt5_tasks),
             "disabled_noncritical": not_ready,
+            "last_results_read": len(last_results),
         }
     except Exception as e:
         return {"status": "WARN", "reason": str(e)}
@@ -184,7 +259,44 @@ def check_freshness():
     else:
         out["news_status"] = "WARN"
         out["news_error"] = "news_state.json missing"
+    # MT5-SymbolScanner is a 120-minute weekly task whose output nothing was checking, so a
+    # scan that stopped producing results was invisible. That is not hypothetical: the scan
+    # pulls history from Yahoo via yfinance, and Yahoo rate-limits datacenter IPs -- it 429s
+    # from this project's sandbox, and the VPS is a datacenter IP too. A silently dead scan
+    # means no new edges are ever discovered while the task keeps reporting Ready.
+    # Threshold is 8 days: the task runs weekly, so anything older has MISSED a run. On a
+    # fresh box the file is legitimately absent until the first Sunday; that WARNs, which is
+    # honest, and clears itself after one scan.
+    scan_summary = DATA_CACHE / "edge_discovery_summary.json"
+    if scan_summary.exists():
+        try:
+            age_days = (now.timestamp() - scan_summary.stat().st_mtime) / 86400.0
+            out["edge_scan_age_days"] = round(age_days, 1)
+            out["edge_scan_status"] = "WARN" if age_days > 8 else "OK"
+        except OSError as exc:
+            out["edge_scan_status"] = "WARN"
+            out["edge_scan_error"] = str(exc)
+    else:
+        out["edge_scan_status"] = "WARN"
+        out["edge_scan_error"] = "edge_discovery_summary.json missing (scan has never produced output)"
+
     out["blacklist_present"] = BLACKLIST_FILE.exists()
+    # maybe_notify only inspects a top-level "status", so without this the whole check was
+    # unalertable: a missing or stale news_state.json set news_status and contributed nothing
+    # to severity. The news gate fails OPEN on a missing file, so nobody finding out is
+    # precisely the case worth paging about.
+    problems = []
+    if out.get("news_status") == "WARN":
+        problems.append("news state " + str(out.get("news_error", "is stale")))
+    if not out["blacklist_present"]:
+        problems.append("blacklist.json missing")
+    if out.get("edge_scan_status") == "WARN":
+        problems.append("weekly edge scan " + str(out.get("edge_scan_error", "output is stale")))
+    if problems:
+        out["status"] = "WARN"
+        out["reason"] = "; ".join(problems)
+    else:
+        out["status"] = "OK"
     return out
 
 
@@ -225,7 +337,11 @@ def check_structural_scheduler():
         ) / 60.0
         result["event_age_min"] = round(age_minutes, 1)
         if age_minutes > 20:
-            result.update(status="WARN", reason=f"structural scheduler event is {age_minutes:.0f} minutes old")
+            # The age must NOT go in the reason: maybe_notify hashes the reason strings to
+            # dedup, so a number that changes every run made a new key every run and the 6h
+            # cooldown never applied -- 48 pushes/day from one chronic warning. The value is
+            # already reported as event_age_min, which is not part of the key.
+            result.update(status="WARN", reason="structural scheduler event heartbeat is stale")
     except OSError as exc:
         result.update(status="WARN", reason=f"cannot stat structural scheduler events: {exc}")
     return result
@@ -568,6 +684,35 @@ def check_profit_funded_scaling(now: datetime | None = None) -> dict:
     return result
 
 
+def check_alerting():
+    """Can this monitor actually reach anyone?
+
+    Everything else here decides WHETHER to alert. Nothing checked whether alerting works.
+    notify.py resolves the topic from os.environ["NTFY_TOPIC"] and falls back to a
+    DEFAULT_TOPIC that still contains the placeholder "XYZ"; on that value send_ntfy prints
+    to stderr and returns False. _push_health runs it with capture_output=True and no
+    returncode check, so that warning is swallowed -- every alert this system raises would
+    quietly reach nobody, the kill-switch disarm push included.
+
+    update.ps1:167 says "notify.py's registry fallback always finds it". There is no registry
+    fallback in notify.py. Windows does materialise User/Machine env vars into a new task's
+    environment, which is why this usually works -- but only if the variable was ever set.
+    If it was not, nothing anywhere says so, which is the case worth reporting.
+
+    CRITICAL is deliberate even though this check cannot page: it is written into
+    vps_health.json, which status.ps1 and the dashboard read. The whole point is that the
+    push channel is exactly what is unavailable.
+    """
+    topic = os.environ.get("NTFY_TOPIC", "").strip()
+    if not topic:
+        return {"status": "CRITICAL", "configured": False,
+                "reason": "NTFY_TOPIC is unset: every alert from this VPS reaches nobody"}
+    if "XYZ" in topic:
+        return {"status": "CRITICAL", "configured": False,
+                "reason": "NTFY_TOPIC still holds the placeholder topic; notify.py refuses to send"}
+    return {"status": "OK", "configured": True}
+
+
 def _push_health(msg: str):
     notify_path = Path(__file__).parent / "notify.py"
     if not notify_path.exists():
@@ -605,7 +750,12 @@ def maybe_notify(report: dict):
         write_json_atomic(state_file, {"severity": "OK", "ts": now, "key": ""})
         return
 
-    key = hashlib.md5((severity + "|" + "|".join(sorted(reasons))).encode()).hexdigest()
+    # Digits are normalised out of the KEY (never out of the pushed message) so that a reason
+    # carrying a measured value -- an age, a byte count, an errno -- dedups on the KIND of
+    # problem rather than reading as a brand-new alert every run. Without this the cooldown
+    # below silently does nothing for exactly the chronic warnings it exists to damp.
+    fingerprint = re.sub(r"\d+", "#", severity + "|" + "|".join(sorted(reasons)))
+    key = hashlib.md5(fingerprint.encode()).hexdigest()
     cooldown = 3600 if severity == "CRITICAL" else 6 * 3600
     if key == state.get("key") and (now - state.get("ts", 0)) < cooldown:
         return  # identical alert within cooldown -> suppress (anti-spam)
@@ -624,6 +774,7 @@ def main():
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
+        "alerting": check_alerting(),
         "freshness": check_freshness(),
         "log_sizes": check_log_sizes(),
     }
@@ -636,5 +787,14 @@ def main():
 if __name__ == "__main__":
     try:
         main()
-    except Exception as exc:  # the monitor must not itself fail the task; it alerts via ntfy
-        print(f"vps_health non-fatal error: {type(exc).__name__}: {exc}", file=sys.stderr)
+    except Exception as exc:
+        # The old comment here said the monitor must not fail its own task because "it alerts
+        # via ntfy" -- but a throw out of main() means maybe_notify was never reached, so it
+        # alerted via nothing and still exited 0. A health monitor that cannot report its own
+        # failure is not a monitor. Push first (best effort), then fail the task honestly.
+        print(f"vps_health FAILED: {type(exc).__name__}: {exc}", file=sys.stderr)
+        try:
+            _push_health(f"[VPS CRITICAL] health monitor itself failed: {type(exc).__name__}: {exc}")
+        except Exception:
+            pass
+        sys.exit(1)

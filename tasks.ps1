@@ -7,9 +7,14 @@ $mt5 = $rows | Where-Object { $_.TaskName -like '*MT5-*' } | ForEach-Object {
 } | Sort-Object Name -Unique
 
 $bad = $mt5 | Where-Object { $_.Status -notin @('Ready','Running') }
+# Every name here must be created by an installer in this repo -- ci/verify_deploy.py
+# enforces that, so this list can no longer drift into naming tasks nothing installs.
 $critical = @('MT5-StructuralScheduler','MT5-GoldDrift-KillSwitch','MT5-Heartbeat',
     'MT5-Watchdog','MT5-PositionMonitor','MT5-ContextIngest','MT5-LLMThesis',
     'MT5-ApplyThesis','MT5-AutoDeploy','MT5-VPS-Health','MT5-Maintenance')
+# MT5-Watchdog is the odd one out: harden.ps1 creates it, not update.ps1, so the remedy
+# for a missing watchdog is a different script from the remedy for everything else.
+$hardenOwned = @('MT5-Watchdog')
 if (Test-Path 'C:\mt5-vibe-research\install.json') { $critical += 'MT5-VibeBaseline' }
 $present = @($mt5 | Select-Object -ExpandProperty Name)
 $missing = @($critical | Where-Object { $present -notcontains $_ })
@@ -28,7 +33,21 @@ if ($critBad -or $missing) {
     Write-Host 'PROBLEM: these are CRITICAL tasks and should NOT be off:' -ForegroundColor Red
     $critBad | ForEach-Object { Write-Host "   $($_.Name)" -ForegroundColor Red }
     $missing | ForEach-Object { Write-Host "   $_ (MISSING)" -ForegroundColor Red }
-    Write-Host 'Re-enable each with:  schtasks /change /tn "<name>" /enable' -ForegroundColor Yellow
+    if ($critBad) {
+        Write-Host 'Disabled -> re-enable:  schtasks /change /tn "<name>" /enable' -ForegroundColor Yellow
+    }
+    # /enable cannot create a task that was never registered, which is what the old advice
+    # told you to do for a MISSING task. Point each one at the installer that creates it.
+    $missingUpdate = @($missing | Where-Object { $hardenOwned -notcontains $_ })
+    $missingHarden = @($missing | Where-Object { $hardenOwned -contains $_ })
+    if ($missingUpdate) {
+        Write-Host 'MISSING -> re-run the updater (creates absent tasks, leaves existing ones alone):' -ForegroundColor Yellow
+        Write-Host '    irm is.gd/mt5update | iex' -ForegroundColor Yellow
+    }
+    if ($missingHarden) {
+        Write-Host 'MISSING watchdog -> re-run harden.ps1 (it installs the MT5 terminal watchdog):' -ForegroundColor Yellow
+        Write-Host '    powershell -ExecutionPolicy Bypass -File C:\trading-agent\harden.ps1' -ForegroundColor Yellow
+    }
 } else {
     Write-Host 'VERDICT: all disabled tasks are retired legacy edge tasks.' -ForegroundColor Green
     Write-Host 'The broker-clock structural scheduler and safety tasks are healthy.' -ForegroundColor Green

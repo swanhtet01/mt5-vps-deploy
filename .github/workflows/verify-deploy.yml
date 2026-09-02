@@ -1,0 +1,49 @@
+# This repo installs and updates a live trading VPS and had no CI at all. Every failure it
+# guards against is silent on the box: a stale hash aborts the whole installer so no update
+# lands, a syntax error kills every task running that file, and a task the health check calls
+# critical that no installer creates keeps the check permanently red.
+name: verify-deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Manifest integrity, delivered-Python syntax, and critical-task installability.
+      # Pure stdlib on purpose: no pip step to break, and it runs identically on a dev box.
+      - name: Verify deploy manifest and scheduled tasks
+        run: python3 ci/verify_deploy.py
+
+      # The installer is PowerShell and is executed by `irm ... | iex` on the VPS, where a
+      # parse error means the whole thing fails at line 1 -- after the operator has already
+      # decided the update ran. pwsh is preinstalled on ubuntu runners, so the syntax gate
+      # costs nothing and catches what a Linux dev box cannot check locally.
+      - name: Parse every PowerShell script
+        shell: pwsh
+        run: |
+          $failed = $false
+          foreach ($file in Get-ChildItem -Path . -Filter *.ps1 -Recurse -File) {
+              $errors = $null
+              [System.Management.Automation.Language.Parser]::ParseFile(
+                  $file.FullName, [ref]$null, [ref]$errors) | Out-Null
+              if ($errors) {
+                  $failed = $true
+                  Write-Host "PARSE ERROR: $($file.FullName)" -ForegroundColor Red
+                  $errors | ForEach-Object {
+                      Write-Host "  line $($_.Extent.StartLineNumber): $($_.Message)"
+                  }
+              } else {
+                  Write-Host "ok: $($file.Name)"
+              }
+          }
+          if ($failed) { exit 1 }
