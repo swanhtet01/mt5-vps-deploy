@@ -17,6 +17,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import DATA_CACHE, read_json, write_json_atomic  # noqa: E402
+try:
+    from task_receipt import run_receipt  # noqa: E402
+except ImportError:  # helper not delivered: bookkeeping must never stop the task
+    print("WARN: task_receipt.py missing; running without a run receipt", file=sys.stderr)
+    from contextlib import nullcontext as _nullcontext  # noqa: E402
+
+    def run_receipt(task, directory=None):
+        return _nullcontext(None)
 import notify as notifier  # noqa: E402
 from mt5_agent.mt5_execution import (  # noqa: E402
     coherent_feed_clock_from_mt5,
@@ -94,9 +102,12 @@ def detect(prev: dict, positions: list[dict], closed_trades: list, equity: float
     return alerts, new_state
 
 
-def main() -> None:
+def main(receipt=None) -> None:
     import MetaTrader5 as mt5
-    if not mt5.initialize():
+    initialized = bool(mt5.initialize())
+    if receipt is not None:
+        receipt.mt5_init = initialized
+    if not initialized:
         print(f"position_monitor: mt5.initialize failed: {mt5.last_error()}", file=sys.stderr)
         return
     try:
@@ -137,6 +148,9 @@ def main() -> None:
 
 if __name__ == "__main__":
     try:
-        main()
+        # The receipt records the exception (ok=false) and re-raises; the except below then
+        # keeps the task itself non-fatal exactly as before.
+        with run_receipt("MT5-PositionMonitor") as _receipt:
+            main(_receipt)
     except Exception as exc:  # never fail the task
         print(f"position_monitor non-fatal error: {type(exc).__name__}: {exc}", file=sys.stderr)

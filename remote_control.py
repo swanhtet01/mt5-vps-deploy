@@ -35,6 +35,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from paths import BLACKLIST_FILE, read_json, write_json_atomic  # noqa: E402
+try:
+    from task_receipt import run_receipt  # noqa: E402  (sibling in scripts\ on the VPS)
+except ImportError:
+    try:  # repo layout: this file sits at the root, task_receipt.py under hotfix/scripts
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "hotfix" / "scripts"))
+        from task_receipt import run_receipt  # noqa: E402
+    except ImportError:  # helper not delivered: bookkeeping must never block the pause lever
+        print("remote_control: task_receipt.py missing; running without a run receipt",
+              file=sys.stderr)
+        from contextlib import nullcontext as _nullcontext  # noqa: E402
+
+        def run_receipt(task, directory=None):
+            return _nullcontext(None)
 
 CONTROL_URL = "https://raw.githubusercontent.com/swanhtet01/mt5-vps-deploy/main/control.json"
 
@@ -110,8 +123,10 @@ def main() -> None:
     try:
         control = fetch_control()
     except (urllib.error.URLError, json.JSONDecodeError, OSError, ValueError) as exc:
+        # Fail-safe for the blacklist (untouched) but NOT silent: exit 1 so Task Scheduler
+        # and the run receipt both show that remote control has not been applied.
         print(f"remote_control: fetch failed ({exc}); blacklist left untouched", file=sys.stderr)
-        return
+        sys.exit(1)
     current = read_json(BLACKLIST_FILE) or {}
     old_remote = _remote_set(current)
     new = reconcile(control, current)
@@ -127,4 +142,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with run_receipt("MT5-RemoteControl"):
+        main()

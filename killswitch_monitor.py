@@ -36,6 +36,23 @@ from mt5_agent.mt5_execution import (
 )
 from mt5_agent.trade_history import closed_trades_from_deals
 
+# Run receipt (data_cache/task_runs/MT5-GoldDrift-KillSwitch.json). On the VPS this file and
+# task_receipt.py are siblings in scripts\; in the repo this file sits at the root.
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+try:
+    from task_receipt import run_receipt
+except ImportError:
+    try:  # repo layout: this file sits at the root, task_receipt.py under hotfix/scripts
+        sys.path.insert(0, str(Path(__file__).resolve().parent / "hotfix" / "scripts"))
+        from task_receipt import run_receipt
+    except ImportError:  # helper not delivered: bookkeeping must never make the brake inert
+        print("killswitch: task_receipt.py missing; running without a run receipt",
+              file=sys.stderr)
+        from contextlib import nullcontext as _nullcontext
+
+        def run_receipt(task, directory=None):
+            return _nullcontext(None)
+
 # The kill-switch disarms MT5_GOLD_DRIFT_LIVE, which arms ALL live edges -- so the cumulative
 # loss/streak guards MUST sum across ALL live magics, not just gold (88001). Otherwise a
 # drawdown on USDJPY/UK100/etc. never trips it and only the per-day caps + equity floor cover
@@ -166,8 +183,11 @@ def summarize_losses(deals: list, history_window: FeedHistoryWindow) -> dict[str
     }
 
 
-def main():
-    if not mt5.initialize():
+def main(receipt=None):
+    initialized = bool(mt5.initialize())
+    if receipt is not None:
+        receipt.mt5_init = initialized
+    if not initialized:
         # Loud, not silent. This is the drawdown brake: if MT5 is down it is not "skipping a
         # cycle", it is INERT -- no threshold can be evaluated and nothing can be disarmed.
         # Returning here wrote nothing to killswitch.jsonl and exited 0, so the task read
@@ -251,4 +271,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    with run_receipt("MT5-GoldDrift-KillSwitch") as _receipt:
+        main(_receipt)
