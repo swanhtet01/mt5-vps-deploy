@@ -50,10 +50,30 @@ LOG = Path(r"C:\mt5-paper\gold-drift\killswitch.jsonl")
 # Old thresholds (-$65/7d, -$110/30d) would false-trip on a single bad structural trade.
 # New thresholds match the user's stated $100 risk tolerance and the 5x position scale-up.
 # Equity floor lowered slightly to give more room while still catching catastrophic drawdowns.
-THRESH_30D_LOSS = -200.0      # ~31% monthly loss at $632 equity (was -110)
-THRESH_7D_LOSS = -100.0       # user's stated $100 risk tolerance; covers ~1.5 bad structural trades (was -65)
-THRESH_LOSING_STREAK = 7      # at 5x lots a 7-trade streak is meaningful (was 6)
-THRESH_EQUITY_FLOOR = 480.0   # hard stop ~24% drawdown from $632; gives room for variance (was 530)
+# WIDENED 2026-09-01 at the account owner's request: the cumulative limits were halting
+# live trading on ordinary variance rather than on genuine loss.
+#
+# The arithmetic that forced this, at ~$632 equity and a $480 floor:
+#   * only $152 of room exists before the equity floor trips at all;
+#   * the -$100 7-day limit therefore sat INSIDE the documented $50-150 weekly noise band
+#     for 0.05 lots -- a normal losing week disarmed live trading and required a manual
+#     re-arm, which is exactly the false-trip being complained about;
+#   * the -$200 30-day limit was already unreachable: $632 - $200 = $432 is below the
+#     floor, so the floor always fired first. It has never once been the binding brake.
+#
+# Both cumulative limits are now set outside the noise band. The honest consequence, stated
+# rather than buried: at this lot size the weekly noise (~$150) is the same magnitude as the
+# whole drawdown budget (~$152), so THE EQUITY FLOOR IS NOW THE ONLY BRAKE THAT CAN FIRE on
+# this balance. The cumulative limits become live again only once equity grows enough to put
+# real distance between it and the floor. If the goal is a working early brake rather than a
+# single catastrophic backstop, the fix is a smaller lot size, not looser thresholds --
+# thresholds cannot create room that the position size has already spent.
+#
+# The floor is deliberately UNCHANGED. It is the one control that still bounds a losing run.
+THRESH_30D_LOSS = -300.0      # was -200, which the floor dominated; outside a month of noise
+THRESH_7D_LOSS = -150.0       # was -100, inside the $50-150 weekly noise band at 0.05 lot
+THRESH_LOSING_STREAK = 10     # was 7; ~1.5 weeks of every edge losing, not a normal streak
+THRESH_EQUITY_FLOOR = 480.0   # UNCHANGED -- ~24% drawdown from $632; the real backstop
 REFERENCE_SYMBOLS = ("BTCUSD", "GOLD", "USDJPY")
 
 

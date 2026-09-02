@@ -14,7 +14,7 @@
                   {
                       "source":  "killswitch_monitor.py",
                       "destination":  "scripts/killswitch_monitor.py",
-                      "sha256":  "90b6c64dcac2adced0b0e20818e07afba2de0c5e5a8de97719994ba6073ef13e"
+                      "sha256":  "c80278dc243f4e54b7de178f3ac9111ae93b22a80bd268457fad17dc718eed7d"
                   },
                   {
                       "source":  "heartbeat.py",
