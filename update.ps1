@@ -164,7 +164,12 @@ if ($LASTEXITCODE) { Write-Host '  WARN: pip install had errors (continuing)' -F
 else { Write-Host '  [2b] python deps verified (anthropic, yfinance, numpy, pandas, psutil)' -ForegroundColor Green }
 
 # 2c) mirror NTFY_TOPIC to Machine scope so SYSTEM-context tasks (e.g. a boot alert) can
-#     also push to the phone, and so notify.py's registry fallback always finds it.
+#     also push to the phone. NOTE: notify.py has NO registry fallback -- it reads
+#     os.environ["NTFY_TOPIC"] and nothing else. This works because Windows materialises
+#     User/Machine env vars into a newly-launched task's environment, not because notify.py
+#     looks them up. If the variable was never set at either scope, notify.py falls back to a
+#     DEFAULT_TOPIC still containing "XYZ", refuses to send, and every alert on this box
+#     silently reaches nobody. vps_health.py's check_alerting reports exactly that case.
 $ntfyUser = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
 if ($ntfyUser) { [Environment]::SetEnvironmentVariable('NTFY_TOPIC', $ntfyUser, 'Machine') }
 

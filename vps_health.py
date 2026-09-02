@@ -684,6 +684,35 @@ def check_profit_funded_scaling(now: datetime | None = None) -> dict:
     return result
 
 
+def check_alerting():
+    """Can this monitor actually reach anyone?
+
+    Everything else here decides WHETHER to alert. Nothing checked whether alerting works.
+    notify.py resolves the topic from os.environ["NTFY_TOPIC"] and falls back to a
+    DEFAULT_TOPIC that still contains the placeholder "XYZ"; on that value send_ntfy prints
+    to stderr and returns False. _push_health runs it with capture_output=True and no
+    returncode check, so that warning is swallowed -- every alert this system raises would
+    quietly reach nobody, the kill-switch disarm push included.
+
+    update.ps1:167 says "notify.py's registry fallback always finds it". There is no registry
+    fallback in notify.py. Windows does materialise User/Machine env vars into a new task's
+    environment, which is why this usually works -- but only if the variable was ever set.
+    If it was not, nothing anywhere says so, which is the case worth reporting.
+
+    CRITICAL is deliberate even though this check cannot page: it is written into
+    vps_health.json, which status.ps1 and the dashboard read. The whole point is that the
+    push channel is exactly what is unavailable.
+    """
+    topic = os.environ.get("NTFY_TOPIC", "").strip()
+    if not topic:
+        return {"status": "CRITICAL", "configured": False,
+                "reason": "NTFY_TOPIC is unset: every alert from this VPS reaches nobody"}
+    if "XYZ" in topic:
+        return {"status": "CRITICAL", "configured": False,
+                "reason": "NTFY_TOPIC still holds the placeholder topic; notify.py refuses to send"}
+    return {"status": "OK", "configured": True}
+
+
 def _push_health(msg: str):
     notify_path = Path(__file__).parent / "notify.py"
     if not notify_path.exists():
@@ -745,6 +774,7 @@ def main():
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
+        "alerting": check_alerting(),
         "freshness": check_freshness(),
         "log_sizes": check_log_sizes(),
     }
