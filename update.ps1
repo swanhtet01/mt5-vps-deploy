@@ -19,6 +19,7 @@ $repo   = 'C:\trading-agent'
 $py     = 'C:\mt5-venv\Scripts\python.exe'
 $ghRepo = 'swanhtet01/mt5-vps-deploy'
 New-Item -ItemType Directory -Path $deploy -Force | Out-Null
+$hotfixSyncFailurePath = Join-Path $deploy 'last_hotfix_sync_failure.json'
 
 function New-HiddenTaskAction {
     param(
@@ -189,8 +190,28 @@ function Sync-Hotfixes {
     }
 }
 
+function Invoke-VerifiedHotfixSync {
+    param([Parameter(Mandatory=$true)][string]$Phase)
+    try {
+        Sync-Hotfixes
+        Remove-Item -LiteralPath $hotfixSyncFailurePath -Force -ErrorAction SilentlyContinue
+    } catch {
+        # The initial manifest transaction is atomic, but a failure before scripts are
+        # installed still needs durable evidence for a laggy-console recovery workflow.
+        @{
+            schema = 'mt5.hotfix_sync_failure.v1'
+            phase = $Phase
+            failed_at_utc = (Get-Date).ToUniversalTime().ToString('o')
+            deploy_ref = $deployRef
+            raw_base = $rawBase
+            error = $_.Exception.Message
+        } | ConvertTo-Json | Set-Content -LiteralPath $hotfixSyncFailurePath -Encoding utf8
+        throw
+    }
+}
+
 # A GitHub token can no longer re-arm real trading. Deployment only installs code.
-Sync-Hotfixes
+Invoke-VerifiedHotfixSync -Phase 'pre_bundle'
 
 # 1) latest bundle - best-effort. If the download/extract fails, we KEEP the existing (already
 #    verified) money-path code rather than copying from a bad bundle. $bundleOk gates the copy.
@@ -217,7 +238,7 @@ if ($bundleOk) {
     robocopy "$deploy\trading-agent\src" "$repo\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
     if ($LASTEXITCODE -ge 8) { Write-Host '  WARN: robocopy src had errors (continuing)' -ForegroundColor Yellow }
     # Re-apply verified files after the old release bundle has copied over the tree.
-    Sync-Hotfixes
+    Invoke-VerifiedHotfixSync -Phase 'post_bundle'
 }
 Write-Host "  [2] release bundle refreshed where available; commit $($deployRef.Substring(0,8)) hotfixes verified" -ForegroundColor Green
 
