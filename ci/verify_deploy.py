@@ -97,6 +97,43 @@ def check_python_sources(files: list[dict]) -> None:
             fail("syntax-error", f"{source}:{exc.lineno}: {exc.msg}")
 
 
+def check_manifest_python_dependency_closure(files: list[dict]) -> None:
+    """A manifest-pinned script must not import a newer hotfix module left in the bundle path.
+
+    The release bundle is intentionally not commit-pinned. A scheduler hotfix which imports a
+    new ``mt5_agent`` module therefore needs its dependency in this manifest too; otherwise the
+    VPS can atomically install the caller and then fail at runtime importing an older bundle.
+    """
+    delivered_sources = {str(entry.get("source", "")).replace("\\", "/") for entry in files}
+    hotfix_agent = ROOT / "hotfix" / "src" / "mt5_agent"
+    for entry in files:
+        source = str(entry.get("source", "")).replace("\\", "/")
+        if not source.endswith(".py"):
+            continue
+        path = ROOT / source
+        if not path.is_file():
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except SyntaxError:
+            continue  # syntax is reported by check_python_sources
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom) or not node.module:
+                continue
+            if not node.module.startswith("mt5_agent."):
+                continue
+            module_path = hotfix_agent.joinpath(*node.module.split(".")[1:]).with_suffix(".py")
+            if not module_path.is_file():
+                continue  # an external/package module is owned by the release bundle
+            required = module_path.relative_to(ROOT).as_posix()
+            if required not in delivered_sources:
+                fail(
+                    "unclosed-manifest-import",
+                    f"{source} imports {node.module}, but {required} is not manifest-pinned; "
+                    "the VPS could install the caller without its required hotfix dependency",
+                )
+
+
 def powershell_files() -> list[pathlib.Path]:
     return sorted(p for p in ROOT.glob("*.ps1"))
 
@@ -173,6 +210,7 @@ def main() -> int:
     files = load_manifest()
     check_entries(files)
     check_python_sources(files)
+    check_manifest_python_dependency_closure(files)
     check_task_scripts(files)
     check_critical_tasks_are_installed()
 
