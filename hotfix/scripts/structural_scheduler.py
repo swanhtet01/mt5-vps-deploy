@@ -29,6 +29,7 @@ from typing import Iterable, Mapping
 import MetaTrader5 as mt5
 
 from mt5_agent.edge_registry import EdgeRegistry
+from mt5_agent.paper_protections import admission as paper_admission
 from mt5_agent.structural_challengers import paper_specs as receipt_paper_specs
 from mt5_agent.mt5_execution import (
     FeedClockProvenance,
@@ -288,11 +289,15 @@ def _open_paper_position(
     if bool(spec.get("use_regime_gate", True)) and not regime_on:
         return
     state = _load_paper_forward_state()
-    if any(position.get("signal") == name for position in state["open_positions"]):
+    admitted, protection_reason = paper_admission(
+        state["open_positions"], {"signal": name, "symbol": spec.get("symbol")}
+    )
+    if not admitted:
         _append_event({
             "event": "paper_entry_skipped",
             "signal": name,
-            "reason": "paper position already open",
+            "symbol": str(spec.get("symbol") or ""),
+            "reason": protection_reason,
             **clock.as_dict(),
         })
         return
