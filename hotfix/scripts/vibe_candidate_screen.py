@@ -30,6 +30,7 @@ from mt5_agent.structural_validation import block_bootstrap_mean_lcb  # noqa: E4
 from mt5_agent.vibe_handoff import validate_candidate_handoff  # noqa: E402
 from mt5_agent.vibe_rules import (  # noqa: E402
     RULES,
+    cross_market_signal as _cross_market_signal,
     prepare_frame as _prepare_frame,
     rule_exit as _rule_exit,
     signal as _signal,
@@ -142,11 +143,15 @@ def simulate_candidate(
     direction: str,
     instrument: Mapping[str, Any],
     candidate: Mapping[str, Any],
+    confirmation_frame: pd.DataFrame | None = None,
 ) -> list[dict[str, Any]]:
     """Simulate one fixed direction with next-bar execution and no overlap."""
     if family not in RULES or direction not in {"long", "short"}:
         return []
     data = _prepare_frame(frame)
+    confirmation = _prepare_frame(confirmation_frame) if confirmation_frame is not None else None
+    if family == "cross_market_confirmation" and confirmation is None:
+        return []
     tick_size, tick_value, minimum_lot, cost = _contract_values(instrument, candidate)
     direction_value = 1 if direction == "long" else -1
     maximum_hold = int(RULES[family]["maximum_hold_bars"])
@@ -155,7 +160,15 @@ def simulate_candidate(
     signal_index = 0
     while signal_index < len(data) - 1:
         signal_row = data.iloc[signal_index]
-        if not _signal(signal_row, family, direction_value):
+        confirmation_row = None
+        if confirmation is not None and data.index[signal_index] in confirmation.index:
+            confirmation_row = confirmation.loc[data.index[signal_index]]
+        signalled = (
+            _cross_market_signal(signal_row, confirmation_row, direction_value)
+            if family == "cross_market_confirmation" and confirmation_row is not None
+            else _signal(signal_row, family, direction_value)
+        )
+        if not signalled:
             signal_index += 1
             continue
         entry_index = signal_index + 1
@@ -442,6 +455,7 @@ def grade_direction(
     direction: str,
     instrument: Mapping[str, Any],
     account_snapshot: Mapping[str, Any],
+    confirmation_frame: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     family = str(candidate["family"])
     screen_id = f"{candidate['candidate_id']}-{direction.upper()}"
@@ -473,6 +487,7 @@ def grade_direction(
             direction=direction,
             instrument=instrument,
             candidate=candidate,
+            confirmation_frame=confirmation_frame,
         )
     except ValueError as exc:
         return {
@@ -613,6 +628,11 @@ def screen_candidates(
         directions = ["long", "short"] if candidate["direction"] == "both" else [candidate["direction"]]
         source_symbol = candidate["source_symbols"][0]
         broker_symbol = candidate["broker_symbols"][0]
+        confirmation_frame = (
+            frames[candidate["source_symbols"][1]]
+            if len(candidate["source_symbols"]) == 2
+            else None
+        )
         for direction in directions:
             results.append(
                 grade_direction(
@@ -621,6 +641,7 @@ def screen_candidates(
                     direction=direction,
                     instrument=instruments.get(broker_symbol, {}),
                     account_snapshot=account_snapshot,
+                    confirmation_frame=confirmation_frame,
                 )
             )
 

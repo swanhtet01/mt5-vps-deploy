@@ -56,6 +56,7 @@ FIXED_CATALOG_SYMBOL_PRIORITY = (
     "GBPUSD",
     "JP225Cash",
 )
+FIXED_CROSS_MARKET_PAIRS = (("BTCUSD", "ETHUSD"), ("US500Cash", "UK100Cash"))
 MONTHLY_CALENDAR_DAYS = 30.4375
 MONTHLY_BOOTSTRAP_SAMPLES = 5000
 MONTHLY_BOOTSTRAP_BLOCK_DAYS = 7
@@ -768,6 +769,38 @@ def _candidate_template(
     }
 
 
+def _cross_market_candidate(
+    primary: Mapping[str, Any], confirmation: Mapping[str, Any], *, instrument: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Build a fixed two-market trend-confirmation hypothesis without data-driven selection."""
+    primary_source, confirmation_source = str(primary["source_symbol"]), str(confirmation["source_symbol"])
+    primary_broker, confirmation_broker = str(primary["broker_symbol"]), str(confirmation["broker_symbol"])
+    entry = (
+        "At completed broker-wall H1 bar t, signal for primary bar t+1 only when both the primary "
+        f"{primary_broker} and confirmation {confirmation_broker} have EMA(20) above EMA(100) with "
+        "positive 24-bar return for long, or both are below EMA(100) with negative 24-bar return "
+        "for short; primary realized volatility must be below 1.5 times its trailing 500-bar median. "
+        "Bars must have exactly the same UTC close timestamp."
+    )
+    digest = hashlib.sha256(f"{primary_source}|{confirmation_source}|H1|cross_market_confirmation|both|{entry}".encode()).hexdigest()
+    return {
+        "candidate_id": f"VT-{digest[:12].upper()}", "stage": "DISCOVERED",
+        "source_symbols": [primary_source, confirmation_source],
+        "broker_symbols": [primary_broker, confirmation_broker], "timeframe": "H1",
+        "family": "cross_market_confirmation", "direction": "both",
+        "session": "All available broker-server wall-clock H1 sessions with exact primary/confirmation UTC bar alignment.",
+        "entry_rule": entry,
+        "exit_rule": "Exit at the first of 12 completed primary H1 bars, an opposite primary EMA(20/100) cross, or the stop.",
+        "stop_rule": "For validation only, test an initial stop 1.5 times primary ATR(14) from the next-bar executable primary entry.",
+        "cost_stress": _candidate_cost(instrument),
+        "rationale": "Predeclared cross-market trend agreement; pair selection is fixed before evaluating the bundle.",
+        "expected_frequency": "Unknown until cost-aware chronological validation; do not infer it from the current observation.",
+        "failure_regime": "Correlated markets can diverge during idiosyncratic events, spread expansion, or timestamp/feed mismatch.",
+        "lookahead_safeguards": ["Compute each market's indicators through completed bar t only.", "Require exact timestamp alignment; never forward-fill a confirmation bar.", "Use the first executable primary quote after bar t and include primary spread and slippage.", "Select parameters on training folds only and purge the fold boundary."],
+        "validation_required": list(REQUIRED_VALIDATION_GATES), "priority_score": 50.0, "live_eligible": False,
+    }
+
+
 def build_candidate_handoff(
     *,
     analyses: list[dict[str, Any]],
@@ -789,10 +822,13 @@ def build_candidate_handoff(
             str(item["source_symbol"]),
         ),
     )
+    available_brokers = {str(item["broker_symbol"]) for item in eligible}
+    available_pairs = [pair for pair in FIXED_CROSS_MARKET_PAIRS if set(pair).issubset(available_brokers)]
     selected: list[dict[str, Any]] = []
+    base_limit = max(0, maximum_candidates - len(available_pairs))
     if eligible:
         round_index = 0
-        while len(selected) < maximum_candidates:
+        while len(selected) < base_limit:
             added = False
             for symbol_index, item in enumerate(eligible):
                 family = FIXED_CATALOG_FAMILIES[
@@ -811,11 +847,20 @@ def build_candidate_handoff(
                     )
                 )
                 added = True
-                if len(selected) >= maximum_candidates:
+                if len(selected) >= base_limit:
                     break
             if not added:
                 break
             round_index += 1
+
+    by_broker = {str(item["broker_symbol"]): item for item in eligible}
+    for primary_symbol, confirmation_symbol in FIXED_CROSS_MARKET_PAIRS:
+        if len(selected) >= maximum_candidates:
+            break
+        primary = by_broker.get(primary_symbol)
+        confirmation = by_broker.get(confirmation_symbol)
+        if primary is not None and confirmation is not None:
+            selected.append(_cross_market_candidate(primary, confirmation, instrument=instruments.get(primary_symbol)))
 
     broker_by_source = {item["source_symbol"]: item["broker_symbol"] for item in analyses}
     payload = {

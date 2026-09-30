@@ -77,3 +77,12 @@ def test_catalog_balances_all_families_before_repeating():
         research.FIXED_CATALOG_FAMILIES
     )
     assert "latest observed regime" in handoff["candidates"][0]["rationale"]
+
+
+def test_catalog_reserves_slots_for_predeclared_cross_market_pairs():
+    symbols = ["GOLD", "OILCash", "BTCUSD", "US500Cash", "USDJPY", "ETHUSD", "UK100Cash"]
+    handoff = _handoff([_analysis(symbol) for symbol in symbols], 8)
+
+    pairs = [item["broker_symbols"] for item in handoff["candidates"] if item["family"] == "cross_market_confirmation"]
+    assert pairs == [["BTCUSD", "ETHUSD"], ["US500Cash", "UK100Cash"]]
+    assert len(handoff["candidates"]) == 8
