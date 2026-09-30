@@ -314,7 +314,7 @@ $adAction = New-HiddenTaskAction -Name 'auto-deploy' -Body $adBody
 # Without it the task inherits a filtered token under UAC admin-approval mode and every
 # self-update is a no-op. Every other task here does work that does not need elevation;
 # this one cannot do its job without it.
-schtasks /create /tn 'MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /it /rl HIGHEST /f | Out-Null
+schtasks /create /tn 'MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /ru SYSTEM /rl HIGHEST /f | Out-Null
 Set-MT5TaskReliability -TaskName 'MT5-AutoDeploy' -ExecutionMinutes 12
 Set-Content "$deploy\last_deploy_sha.txt" $deployRef -NoNewline
 Write-Host '  [5] MT5-AutoDeploy scheduled (verified hotfix commits every 15 min)' -ForegroundColor Green
@@ -423,7 +423,7 @@ Write-Host '  [6c] MT5-BootAlert scheduled (phone ping on reboot)' -ForegroundCo
 # 6d) Bounded maintenance keeps append-only logs and research bundles from exhausting disk.
 $maintenanceBody = "& '$py' '$repo\scripts\vps_maintenance.py' *>> 'C:\mt5-paper\analytics\maintenance.log'`r`nexit `$LASTEXITCODE"
 $maintenanceAction = New-HiddenTaskAction -Name 'maintenance' -Body $maintenanceBody
-schtasks /create /tn 'MT5-Maintenance' /tr $maintenanceAction /sc daily /st 03:00 /it /f | Out-Null
+schtasks /create /tn 'MT5-Maintenance' /tr $maintenanceAction /sc daily /st 03:00 /ru SYSTEM /f | Out-Null
 if ($LASTEXITCODE) { Write-Host '  WARN: MT5-Maintenance create failed (continuing)' -ForegroundColor Yellow }
 Set-MT5TaskReliability -TaskName 'MT5-Maintenance' -ExecutionMinutes 20
 Write-Host '  [6d] hidden bounded log/export maintenance scheduled daily' -ForegroundColor Green
