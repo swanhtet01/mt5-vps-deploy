@@ -27,7 +27,7 @@ $Stderr = Join-Path $Logs "structural-walk-forward-$Stamp.stderr.log"
 $Ledger = Join-Path $DataCache 'fdr_ledger.jsonl'
 $Script = Join-Path $PSScriptRoot 'structural_walk_forward.py'
 
-function Write-State([string]$Status, [string]$Reason = '') {
+function Write-State([string]$Status, [string]$Reason = '', [string]$ReportSha256 = '') {
     $payload = [ordered]@{
         schema = 'mt5.structural_walk_forward_state.v1'
         status = $Status
@@ -36,6 +36,7 @@ function Write-State([string]$Status, [string]$Reason = '') {
         timeout_minutes = $TimeoutMinutes
         bars = $Bars
         output = $Output
+        report_sha256 = $ReportSha256
         stdout = $Stdout
         stderr = $Stderr
         reason = $Reason
@@ -63,7 +64,8 @@ try {
         Write-State 'failed' 'structural research did not produce its report artifact'
         exit 1
     }
-    Write-State 'completed'
+    $reportSha256 = (Get-FileHash -LiteralPath $Output -Algorithm SHA256).Hash.ToLowerInvariant()
+    Write-State 'completed' '' $reportSha256
 } catch {
     Write-State 'failed' $_.Exception.Message
     throw

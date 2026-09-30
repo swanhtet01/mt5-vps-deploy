@@ -406,6 +406,12 @@ def check_structural_research(now: datetime | None = None) -> dict:
         blockers.append("structural research report is missing or outside reports root")
     else:
         result["report"] = str(output)
+        report_sha256 = str(state.get("report_sha256") or "").strip().lower()
+        result["report_sha256"] = report_sha256 or None
+        if not re.fullmatch(r"[0-9a-f]{64}", report_sha256):
+            blockers.append("structural research report hash is missing or invalid")
+        elif _file_sha256(output) != report_sha256:
+            blockers.append("structural research report hash mismatch")
     if blockers:
         result.update(status="WARN", reason="; ".join(blockers), blockers=blockers)
     return result
