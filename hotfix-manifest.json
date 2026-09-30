@@ -64,7 +64,7 @@
                   {
                       "source":  "hotfix/scripts/vibe_deterministic_research.py",
                       "destination":  "scripts/vibe_deterministic_research.py",
-                      "sha256":  "cd3d30d5417908177d1a00ec075c3c5ebf95d14ebea604a2e780cc3c599dedf1"
+                      "sha256":  "2784152f9a5fef4106ccc3944294741594e7f053c56a5626eb990a35da2984ea"
                   },
                   {
                       "source":  "hotfix/scripts/setup-vibe-research.ps1",

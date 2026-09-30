@@ -34,6 +34,28 @@ REPORT_SCHEMA = "mt5.vibe_deterministic_research.v1"
 BUNDLE_SCHEMA = "mt5.vibe_research_bundle.v1"
 DEFAULT_MIN_ROWS = 500
 CORRELATION_CLUSTER_THRESHOLD = 0.80
+FIXED_CATALOG_FAMILIES = (
+    "trend_following",
+    "breakout",
+    "range_reversion",
+    "volatility_regime",
+)
+FIXED_CATALOG_SYMBOL_PRIORITY = (
+    "GOLD",
+    "OILCash",
+    "BTCUSD",
+    "US500Cash",
+    "USDJPY",
+    "ETHUSD",
+    "EURUSD",
+    "UK100Cash",
+    "SILVER",
+    "GER40Cash",
+    "AUDJPY",
+    "GBPJPY",
+    "GBPUSD",
+    "JP225Cash",
+)
 MONTHLY_CALENDAR_DAYS = 30.4375
 MONTHLY_BOOTSTRAP_SAMPLES = 5000
 MONTHLY_BOOTSTRAP_BLOCK_DAYS = 7
@@ -651,31 +673,52 @@ def _candidate_template(
     symbol = str(analysis["broker_symbol"])
     source_symbol = str(analysis["source_symbol"])
     if family == "trend_following":
-        comparison = ">" if direction == "long" else "<"
-        momentum = "> 0" if direction == "long" else "< 0"
-        entry = (
-            f"At completed broker-wall H1 bar t, signal for bar t+1 only when EMA(20) {comparison} "
-            f"EMA(100), 24-bar return {momentum}, and the volatility ratio is below 1.5."
-        )
+        if direction == "both":
+            entry = (
+                "At completed broker-wall H1 bar t, signal for bar t+1 only when EMA(20) is above "
+                "EMA(100) with positive 24-bar return for long, or below EMA(100) with negative "
+                "24-bar return for short, and the volatility ratio is below 1.5."
+            )
+        else:
+            comparison = ">" if direction == "long" else "<"
+            momentum = "> 0" if direction == "long" else "< 0"
+            entry = (
+                f"At completed broker-wall H1 bar t, signal for bar t+1 only when EMA(20) {comparison} "
+                f"EMA(100), 24-bar return {momentum}, and the volatility ratio is below 1.5."
+            )
         exit_rule = "Exit at the first of 12 completed H1 bars, an opposite EMA(20/100) cross, or the stop."
         stop_rule = "For validation only, test an initial stop 1.5 times ATR(14) from the next-bar executable entry."
         failure = "Sideways or abruptly reversing markets with high spread and volatility expansion."
     elif family == "breakout":
-        comparison = "above" if direction == "long" else "below"
-        boundary = "high" if direction == "long" else "low"
-        entry = (
-            f"At completed broker-wall H1 bar t, signal for bar t+1 only if close[t] is {comparison} "
-            f"the prior 120-bar {boundary} computed strictly through t-1 and 24-bar momentum agrees."
-        )
+        if direction == "both":
+            entry = (
+                "At completed broker-wall H1 bar t, signal for bar t+1 only if close[t] is above "
+                "the prior 120-bar high with positive momentum for long, or below the prior 120-bar "
+                "low with negative momentum for short, with boundaries computed strictly through t-1."
+            )
+        else:
+            comparison = "above" if direction == "long" else "below"
+            boundary = "high" if direction == "long" else "low"
+            entry = (
+                f"At completed broker-wall H1 bar t, signal for bar t+1 only if close[t] is {comparison} "
+                f"the prior 120-bar {boundary} computed strictly through t-1 and 24-bar momentum agrees."
+            )
         exit_rule = "Exit after 8 completed H1 bars, on a close back inside the prior range, or at the stop."
         stop_rule = "For validation only, test an initial stop 1.25 times ATR(14) from the next-bar executable entry."
         failure = "False breaks during thin liquidity, spread spikes, or immediate range re-entry."
     elif family == "range_reversion":
-        threshold = "<= -2" if direction == "long" else ">= 2"
-        entry = (
-            f"At completed broker-wall H1 bar t, signal for bar t+1 only when the 20-bar close z-score is {threshold} "
-            "and absolute EMA(20)-EMA(100) is below 0.75 ATR(14)."
-        )
+        if direction == "both":
+            entry = (
+                "At completed broker-wall H1 bar t, signal for bar t+1 when the 20-bar close z-score "
+                "is at most -2 for long or at least 2 for short, and absolute EMA(20)-EMA(100) is "
+                "below 0.75 ATR(14)."
+            )
+        else:
+            threshold = "<= -2" if direction == "long" else ">= 2"
+            entry = (
+                f"At completed broker-wall H1 bar t, signal for bar t+1 only when the 20-bar close z-score is {threshold} "
+                "and absolute EMA(20)-EMA(100) is below 0.75 ATR(14)."
+            )
         exit_rule = "Exit on a completed-bar z-score crossing zero, after 10 H1 bars, or at the stop."
         stop_rule = "For validation only, test an initial stop 1.25 times ATR(14) beyond the next-bar executable entry."
         failure = "Persistent trends where an apparent range dislocates rather than reverts."
@@ -691,10 +734,9 @@ def _candidate_template(
         failure = "Volatility spikes that reverse immediately, spread expansion, or unstable direction selection across folds."
     digest = hashlib.sha256(f"{source_symbol}|H1|{family}|{direction}|{entry}".encode()).hexdigest()
     rationale = (
-        f"Current descriptive ranking only: trend={analysis['trend_regime']}, "
-        f"volatility={analysis['volatility_regime']}, momentum120={analysis['momentum_120_pct']}, "
-        f"trend_strength_atr={analysis['ema20_minus_ema100_atr']}, zscore20={analysis['zscore_20']}. "
-        "These observations are not evidence of future return."
+        "Frozen catalog rule selected independently of the latest observed regime. Current trend, "
+        "volatility, momentum, and z-score diagnostics are reported separately and do not select "
+        "this hypothesis or its direction."
     )
     return {
         "candidate_id": f"VT-{digest[:12].upper()}",
@@ -735,104 +777,45 @@ def build_candidate_handoff(
     manifest_sha256: str,
     maximum_candidates: int,
 ) -> dict[str, Any]:
-    options: list[dict[str, Any]] = []
-    for item in analyses:
-        if item["data_quality"]["status"] != "PASS":
-            continue
-        trend_strength = abs(float(item.get("ema20_minus_ema100_atr") or 0.0))
-        momentum120 = float(item.get("momentum_120_pct") or 0.0)
-        momentum24 = float(item.get("momentum_24_pct") or 0.0)
-        zscore20 = float(item.get("zscore_20") or 0.0)
-        range_position = item.get("range_position_120")
-        broker_symbol = str(item["broker_symbol"])
-        instrument = instruments.get(broker_symbol)
-        if (
-            item["trend_regime"] in {"up", "down"}
-            and item["volatility_regime"] != "high"
-            and trend_strength >= 0.5
-        ):
-            direction = "long" if item["trend_regime"] == "up" else "short"
-            score = 45 + min(trend_strength * 12, 30) + min(abs(momentum120), 20)
-            options.append(
-                _candidate_template(
-                    item,
-                    family="trend_following",
-                    direction=direction,
-                    score=score,
-                    instrument=instrument,
-                )
-            )
-        if range_position is not None:
-            if float(range_position) >= 0.97 and momentum24 > 0:
-                direction = "long"
-            elif float(range_position) <= 0.03 and momentum24 < 0:
-                direction = "short"
-            else:
-                direction = ""
-            if direction:
-                score = 40 + min(abs(momentum24) * 5, 30) + min(trend_strength * 5, 15)
-                options.append(
+    del correlation_report  # Diagnostics only; latest-sample correlation cannot select the fixed catalog.
+    symbol_priority = {
+        symbol: index for index, symbol in enumerate(FIXED_CATALOG_SYMBOL_PRIORITY)
+    }
+    eligible = sorted(
+        (item for item in analyses if item["data_quality"]["status"] == "PASS"),
+        key=lambda item: (
+            symbol_priority.get(str(item["broker_symbol"]), len(symbol_priority)),
+            str(item["broker_symbol"]),
+            str(item["source_symbol"]),
+        ),
+    )
+    selected: list[dict[str, Any]] = []
+    if eligible:
+        round_index = 0
+        while len(selected) < maximum_candidates:
+            added = False
+            for symbol_index, item in enumerate(eligible):
+                family = FIXED_CATALOG_FAMILIES[
+                    (symbol_index + round_index) % len(FIXED_CATALOG_FAMILIES)
+                ]
+                pair = (str(item["broker_symbol"]), family)
+                if any((candidate["broker_symbols"][0], candidate["family"]) == pair for candidate in selected):
+                    continue
+                selected.append(
                     _candidate_template(
                         item,
-                        family="breakout",
-                        direction=direction,
-                        score=score,
-                        instrument=instrument,
+                        family=family,
+                        direction="both",
+                        score=50.0,
+                        instrument=instruments.get(str(item["broker_symbol"])),
                     )
                 )
-        if item["trend_regime"] == "mixed" and abs(zscore20) >= 1.5:
-            direction = "long" if zscore20 < 0 else "short"
-            score = 40 + min(abs(zscore20) * 12, 35)
-            options.append(
-                _candidate_template(
-                    item,
-                    family="range_reversion",
-                    direction=direction,
-                    score=score,
-                    instrument=instrument,
-                )
-            )
-        if item["volatility_regime"] == "high":
-            volatility_ratio = float(item.get("volatility_ratio_vs_recent_median") or 0.0)
-            score = 42 + min(max(volatility_ratio - 1.5, 0.0) * 20, 25) + min(abs(momentum24) * 3, 15)
-            options.append(
-                _candidate_template(
-                    item,
-                    family="volatility_regime",
-                    direction="both",
-                    score=score,
-                    instrument=instrument,
-                )
-            )
-
-    options.sort(key=lambda candidate: (-candidate["priority_score"], candidate["candidate_id"]))
-    correlation_by_pair: dict[frozenset[str], float] = {}
-    matrix = correlation_report.get("matrix", {})
-    for left, row in matrix.items():
-        for right, value in row.items():
-            if left != right and value is not None:
-                correlation_by_pair[frozenset({left, right})] = abs(float(value))
-    selected: list[dict[str, Any]] = []
-    family_counts: dict[str, int] = {}
-    selected_symbols: set[str] = set()
-    for candidate in options:
-        symbol = candidate["broker_symbols"][0]
-        family = candidate["family"]
-        if symbol in selected_symbols or family_counts.get(family, 0) >= 3:
-            continue
-        too_correlated = any(
-            correlation_by_pair.get(frozenset({symbol, existing["broker_symbols"][0]}), 0.0)
-            >= CORRELATION_CLUSTER_THRESHOLD
-            and existing["family"] == family
-            for existing in selected
-        )
-        if too_correlated:
-            continue
-        selected.append(candidate)
-        selected_symbols.add(symbol)
-        family_counts[family] = family_counts.get(family, 0) + 1
-        if len(selected) >= maximum_candidates:
-            break
+                added = True
+                if len(selected) >= maximum_candidates:
+                    break
+            if not added:
+                break
+            round_index += 1
 
     broker_by_source = {item["source_symbol"]: item["broker_symbol"] for item in analyses}
     payload = {
@@ -847,8 +830,8 @@ def build_candidate_handoff(
             "vibe_commit": AUDITED_VIBE_COMMIT,
         },
         "summary": (
-            f"Ranked {len(selected)} diverse rules for validation from current descriptive regimes. "
-            "Priority scores are triage ranks, not probabilities or evidence of profitability."
+            f"Generated {len(selected)} frozen symbol-family rules independent of the latest regime. "
+            "Both directions are separate trials; priority scores are catalog ordering, not evidence."
         ),
         "candidates": selected,
     }
