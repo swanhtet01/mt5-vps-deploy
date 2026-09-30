@@ -48,7 +48,7 @@ $TaskToRun = '\"wscript.exe\" \"' + $TaskRunner + '\"'
 $CreateCommand = (
     'schtasks /Create /TN "' + ($TaskName -replace '"', '\"') + '" ' +
     '/SC MINUTE /MO ' + $IntervalMinutes + ' ' +
-    '/TR "' + $TaskToRun + '" /F'
+    '/TR "' + $TaskToRun + '" /RU SYSTEM /F'
 )
 cmd.exe /c $CreateCommand
 if ($LASTEXITCODE -ne 0) {

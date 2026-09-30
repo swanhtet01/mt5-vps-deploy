@@ -69,7 +69,7 @@
     {
       "source": "hotfix/scripts/setup-vibe-research.ps1",
       "destination": "scripts/setup-vibe-research.ps1",
-      "sha256": "aefde27faf7269153a4487b748a7fcf1429838d99816feb2ecd64bb42e07a92b"
+      "sha256": "899a6412271dc468e1d9b572900a326ee758dfbb3dcc262fb61dca581b9766eb"
     },
     {
       "source": "hotfix/scripts/set-vibe-provider-secret.ps1",
@@ -169,7 +169,7 @@
     {
       "source": "hotfix/scripts/register-vibe-shadow.ps1",
       "destination": "scripts/register-vibe-shadow.ps1",
-      "sha256": "ce5518ca54fa58aadc86b83bb7e3b6cdbdc0c75ce212f1382dce478f70868951"
+      "sha256": "23c1fd125a917db98c7b249c394fd4d6efe8f3621a19d4f849309e87b919c4de"
     },
     {
       "source": "hotfix/src/mt5_agent/vibe_rules.py",

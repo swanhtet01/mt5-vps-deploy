@@ -1,0 +1,20 @@
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_vibe_scheduled_research_runs_without_an_interactive_user_session():
+    source = (ROOT / "hotfix" / "scripts" / "setup-vibe-research.ps1").read_text(encoding="utf-8")
+
+    assert "/it" not in source.lower()
+    assert "MT5-VibeBaseline' /tr $BaselineAction /sc daily /st 04:00 /ru SYSTEM /f" in source
+    assert "MT5-VibeResearch' /tr $ResearchAction /sc weekly /d SUN /st 15:30 /ru SYSTEM /f" in source
+    assert "-TimeoutMinutes 60 -SkipAgent" in source
+
+
+def test_vibe_shadow_task_runs_as_system_in_the_background():
+    source = (ROOT / "hotfix" / "scripts" / "register-vibe-shadow.ps1").read_text(encoding="utf-8")
+
+    assert "/RU SYSTEM /F" in source
+    assert "/it" not in source.lower()
