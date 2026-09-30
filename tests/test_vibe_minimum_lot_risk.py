@@ -46,6 +46,15 @@ def _instrument() -> dict:
         "trade_tick_size": 0.01,
         "trade_tick_value": 1.0,
         "volume_min": 0.01,
+        "minimum_lot_margin": {
+            "status": "AVAILABLE",
+            "basis": "test order_calc_margin",
+            "account_currency": "USD",
+            "minimum_lot": 0.01,
+            "buy": 0.5,
+            "sell": 0.4,
+            "maximum": 0.5,
+        },
     }
 
 
@@ -55,7 +64,7 @@ def test_tiny_account_fails_minimum_lot_stop_risk_gate():
         candidate=_candidate(),
         direction="long",
         instrument=_instrument(),
-        account_snapshot={"currency": "USD", "equity": 1.0},
+        account_snapshot={"currency": "USD", "equity": 1.0, "margin_free": 1000.0},
     )
 
     risk = result["minimum_lot_stop_risk"]
@@ -71,8 +80,22 @@ def test_non_usd_account_fails_closed_without_conversion_evidence():
         candidate=_candidate(),
         direction="long",
         instrument=_instrument(),
-        account_snapshot={"currency": "EUR", "equity": 10_000.0},
+        account_snapshot={"currency": "EUR", "equity": 10_000.0, "margin_free": 10_000.0},
     )
 
     assert result["historical_screen_verdict"] == "INSUFFICIENT_CONTRACT_DATA"
     assert "requires a USD account snapshot" in result["reasons"][0]
+
+
+def test_minimum_lot_margin_fails_when_headroom_is_too_small():
+    result = screen.grade_direction(
+        frame=_frame(),
+        candidate=_candidate(),
+        direction="long",
+        instrument=_instrument(),
+        account_snapshot={"currency": "USD", "equity": 10_000.0, "margin_free": 1.0},
+    )
+
+    assert result["minimum_lot_margin"]["pass"] is False
+    assert result["minimum_lot_margin"]["measured_free_margin_fraction"] == 0.5
+    assert result["historical_screen_verdict"] == "FAIL"

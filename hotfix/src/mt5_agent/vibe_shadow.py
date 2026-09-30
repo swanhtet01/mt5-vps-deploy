@@ -37,6 +37,7 @@ BOOTSTRAP_BLOCK_TRADES = 4
 MINIMUM_HISTORICAL_DSR_PROBABILITY = 0.95
 MAXIMUM_HISTORICAL_PBO = 0.20
 MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
+MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION = 0.25
 PAPER_FORWARD_ENROLLMENT_GATE = "historical_screen_pass_and_cumulative_bh_fdr"
 
 
@@ -302,6 +303,13 @@ def load_vibe_artifacts(
             minimum=0,
         )
         != MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
+        or method.get("minimum_lot_margin_required") is not True
+        or _number(
+            method.get("maximum_minimum_lot_margin_free_fraction"),
+            "method.maximum_minimum_lot_margin_free_fraction",
+            minimum=0,
+        )
+        != MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION
     ):
         raise ValueError("candidate screen minimum-lot risk contract is invalid")
     selection_overfitting = screen.get("selection_overfitting")
@@ -452,6 +460,34 @@ def load_vibe_artifacts(
             raise ValueError("candidate screen minimum-lot stop risk is inconsistent")
         if result["historical_screen_pass"] and not risk_pass:
             raise ValueError("candidate screen pass bypasses the minimum-lot risk gate")
+        margin = result.get("minimum_lot_margin")
+        if not isinstance(margin, dict):
+            raise ValueError("candidate screen minimum-lot margin is missing")
+        margin_limit = _number(
+            margin.get("maximum_free_margin_fraction"),
+            "minimum_lot_margin.maximum_free_margin_fraction",
+            minimum=0,
+        )
+        measured_margin = _number(
+            margin.get("measured_free_margin_fraction"),
+            "minimum_lot_margin.measured_free_margin_fraction",
+            minimum=0,
+        )
+        margin_pass = bool(
+            margin.get("account_currency") == "USD"
+            and _number(
+                margin.get("captured_free_margin_usd"),
+                "minimum_lot_margin.captured_free_margin_usd",
+                minimum=0,
+            )
+            > 0
+            and margin_limit == MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION
+            and measured_margin <= margin_limit
+        )
+        if margin.get("pass") is not margin_pass:
+            raise ValueError("candidate screen minimum-lot margin is inconsistent")
+        if result["historical_screen_pass"] and not margin_pass:
+            raise ValueError("candidate screen pass bypasses the minimum-lot margin gate")
         lot = _number(candidate["cost_stress"].get("minimum_lot_reference"), "minimum lot", minimum=0)
         slippage = _number(
             candidate["cost_stress"].get("slippage_points_round_trip"),

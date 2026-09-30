@@ -61,6 +61,7 @@ MINIMUM_PBO_DAYS = 64
 MINIMUM_PBO_STRATEGIES = 4
 MAXIMUM_PBO = 0.20
 MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
+MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION = 0.25
 
 def _finite(value: Any, digits: int = 6) -> float | None:
     try:
@@ -90,6 +91,48 @@ def _account_equity_usd(account_snapshot: Mapping[str, Any]) -> float:
     if not math.isfinite(equity) or equity <= 0:
         raise ValueError("minimum-lot stop-risk gate requires positive captured equity")
     return equity
+
+
+def _minimum_lot_margin_evidence(
+    instrument: Mapping[str, Any], account_snapshot: Mapping[str, Any]
+) -> dict[str, Any]:
+    margin = instrument.get("minimum_lot_margin")
+    account_currency = str(account_snapshot.get("currency") or "")
+    free_margin = float(account_snapshot.get("margin_free") or 0)
+    minimum_lot = float(instrument.get("volume_min") or 0)
+    if not isinstance(margin, Mapping) or margin.get("status") != "AVAILABLE":
+        raise ValueError("broker minimum-lot margin estimate is unavailable")
+    if margin.get("account_currency") != account_currency or account_currency != "USD":
+        raise ValueError("broker minimum-lot margin currency does not match the USD account")
+    if not math.isclose(
+        float(margin.get("minimum_lot") or 0), minimum_lot, rel_tol=1e-9, abs_tol=1e-12
+    ):
+        raise ValueError("broker margin estimate minimum lot does not match instrument snapshot")
+    buy = float(margin.get("buy") or 0)
+    sell = float(margin.get("sell") or 0)
+    maximum = float(margin.get("maximum") or 0)
+    if (
+        free_margin <= 0
+        or buy < 0
+        or sell < 0
+        or maximum <= 0
+        or not all(math.isfinite(value) for value in (free_margin, buy, sell, maximum))
+        or not math.isclose(maximum, max(buy, sell), rel_tol=1e-9, abs_tol=1e-8)
+    ):
+        raise ValueError("broker minimum-lot margin evidence is invalid")
+    fraction = maximum / free_margin
+    return {
+        "account_currency": account_currency,
+        "captured_free_margin_usd": _finite(free_margin, 2),
+        "minimum_lot": minimum_lot,
+        "buy_margin_usd": _finite(buy, 8),
+        "sell_margin_usd": _finite(sell, 8),
+        "maximum_margin_usd": _finite(maximum, 8),
+        "maximum_free_margin_fraction": MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION,
+        "measured_free_margin_fraction": _finite(fraction, 8),
+        "pass": fraction <= MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION,
+        "basis": margin.get("basis"),
+    }
 
 
 def simulate_candidate(
@@ -423,6 +466,7 @@ def grade_direction(
     folds = _fold_ranges(len(frame), purge_bars)
     try:
         account_equity = _account_equity_usd(account_snapshot)
+        margin_evidence = _minimum_lot_margin_evidence(instrument, account_snapshot)
         trades = simulate_candidate(
             frame,
             family=family,
@@ -497,6 +541,11 @@ def grade_direction(
             f"minimum-lot maximum initial stop risk ${maximum_stop_risk:.2f} exceeds "
             f"{MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION:.0%} equity budget ${risk_budget:.2f}"
         )
+    if margin_evidence["pass"] is not True:
+        reasons.append(
+            f"minimum-lot margin uses {margin_evidence['measured_free_margin_fraction']:.2%} "
+            f"of free margin > {MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION:.0%}"
+        )
     daily_pnl: dict[str, float] = defaultdict(float)
     for trade in pooled_trades:
         daily_pnl[str(trade["exit_time"])[:10]] += float(trade["net_usd"])
@@ -535,6 +584,7 @@ def grade_direction(
             "pass": maximum_stop_risk is not None and maximum_stop_risk <= risk_budget,
             "basis": "minimum lot, ATR initial stop, stressed round-trip cost, captured equity",
         },
+        "minimum_lot_margin": margin_evidence,
         "all_simulated_trades": len(trades),
         "folds": fold_reports,
         "oos": {
@@ -668,6 +718,8 @@ def screen_candidates(
             "pbo_cscv_required": True,
             "minimum_lot_stop_risk_required": True,
             "maximum_minimum_lot_stop_risk_fraction": MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION,
+            "minimum_lot_margin_required": True,
+            "maximum_minimum_lot_margin_free_fraction": MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION,
             "maximum_probability_backtest_overfitting": MAXIMUM_PBO,
         },
         "family_trials": family_trials,

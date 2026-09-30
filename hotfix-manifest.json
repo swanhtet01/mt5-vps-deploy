@@ -4,7 +4,7 @@
                   {
                       "source":  "vps_health.py",
                       "destination":  "scripts/vps_health.py",
-                      "sha256":  "aa7ff826e20973d76d9b7d12e3d57d8fff618c6dfd500368ae321ffc3a7397f8"
+                      "sha256":  "5a90dc5cbab50292b9cc073fe318154aef56ef6db5462585594f50e74f35ff56"
                   },
                   {
                       "source":  "hotfix/scripts/paths.py",
@@ -59,7 +59,7 @@
                   {
                       "source":  "hotfix/scripts/export_vibe_research_bundle.py",
                       "destination":  "scripts/export_vibe_research_bundle.py",
-                      "sha256":  "4a72df70bbab7c896d9a2a6c39f6505192f44e48fd1150817477c3c09ad1d0b9"
+                      "sha256":  "3fa19e6b0afca020ff10f4b52faed71a95fd3a8de644a67a432dc366954ab5d2"
                   },
                   {
                       "source":  "hotfix/scripts/vibe_deterministic_research.py",
@@ -104,7 +104,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_bridge.py",
                       "destination":  "src/mt5_agent/vibe_bridge.py",
-                      "sha256":  "64e1c17af33717f815cf0dfe4afc06ee5fb3605b93a4ab6ff1f14a73e8d640f1"
+                      "sha256":  "1d43a0e3a2d31053d3aed859fd4c78022e9699e4559962918eddf3fb2eef824e"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_handoff.py",
@@ -134,7 +134,7 @@
                   {
                       "source":  "hotfix/scripts/vibe_candidate_screen.py",
                       "destination":  "scripts/vibe_candidate_screen.py",
-                      "sha256":  "eefbca4e58507e494f7a351862b995dfa9c83671643a004c68b2d8be22162a0e"
+                      "sha256":  "701b6d9c961cb54ff5c2f1fa920c380b810078fa9d4f6862169f1b02482b9c7e"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/fdr_ledger.py",
@@ -169,7 +169,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_shadow.py",
                       "destination":  "src/mt5_agent/vibe_shadow.py",
-                      "sha256":  "1e9aef23ffc3313bb469f092a8987d070b599a2a4023158e8467e6297e129370"
+                      "sha256":  "bf10df3c2b7d6519da8ab69be5d1205d69d4e50954a6e0064c4f24bdbfa6c43d"
                   },
                   {
                       "source":  "notify.py",
