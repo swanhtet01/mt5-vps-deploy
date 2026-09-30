@@ -23,6 +23,14 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _within(path: Path, root: Path) -> bool:
+    try:
+        path.resolve().relative_to(root.resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
 def _integer(value: Any, label: str, minimum: int, maximum: int) -> int:
     if isinstance(value, bool):
         raise ValueError(f"{label} must be an integer")
@@ -38,8 +46,13 @@ def _integer(value: Any, label: str, minimum: int, maximum: int) -> int:
 def _validated_receipt(
     state_path: Path, *, now: datetime | None = None, max_age_days: int = 8
 ) -> tuple[dict, dict, Path, datetime]:
+    state_path = state_path.resolve()
     state = json.loads(state_path.read_text(encoding="utf-8"))
-    report_path = Path(str(state["output"])).resolve()
+    raw_report_path = Path(str(state["output"]))
+    project_root = state_path.parent.parent
+    report_path = (raw_report_path if raw_report_path.is_absolute() else project_root / raw_report_path).resolve()
+    if not _within(report_path, project_root / "reports"):
+        raise ValueError("structural receipt report is outside the reports root")
     if state.get("schema") != "mt5.structural_walk_forward_state.v1" or state.get("status") != "completed":
         raise ValueError("structural receipt is not completed")
     if state.get("order_authority") is not False or _sha256(report_path) != state.get("report_sha256"):

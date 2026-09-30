@@ -124,7 +124,7 @@
     {
       "source": "hotfix/src/mt5_agent/structural_challengers.py",
       "destination": "src/mt5_agent/structural_challengers.py",
-      "sha256": "6e27ccc95c651648593ee1ed2a62e64a9e1a96e76b598385f2045b44cdfdd2de"
+      "sha256": "fd5ee0ada78c7c8b18cb8b67fb828431cce4f0bf29e688e92af6b9dbd328c0c5"
     },
     {
       "source": "hotfix/src/mt5_agent/paper_protections.py",
