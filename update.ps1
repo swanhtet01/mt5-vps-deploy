@@ -408,8 +408,9 @@ Set-MT5TaskReliability -TaskName 'MT5-Maintenance' -ExecutionMinutes 20
 Write-Host '  [6d] hidden bounded log/export maintenance scheduled daily' -ForegroundColor Green
 
 # 6e) Pinned Vibe sidecar. The deterministic loader/report runs daily without a
-# provider; the bounded language-model research pass runs weekly only when its DPAPI
-# secret exists. Both are isolated, globally HALTed, and research-only.
+# provider. Scheduled jobs run deterministic-only under SYSTEM because a provider
+# credential is user-DPAPI protected. Both are isolated, globally HALTed, and
+# research-only.
 $vibeRunner = "$repo\scripts\run-vibe-research.ps1"
 $vibeSetup = "$repo\scripts\setup-vibe-research.ps1"
 $vibePython = 'C:\mt5-vibe-research\.venv\Scripts\python.exe'
@@ -449,19 +450,19 @@ if ((Test-Path $vibeRunner) -and (Test-Path $vibeSetup)) {
     } else {
     $vibeBaselineBody = "`$env:MT5_PYTHON='$py'`r`n& '$vibeRunner' -SidecarRoot 'C:\mt5-vibe-research' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 30 -SkipAgent *>> 'C:\mt5-paper\analytics\vibe-baseline.log'`r`nexit `$LASTEXITCODE"
     $vibeBaselineAction = New-HiddenTaskAction -Name 'vibe-baseline' -Body $vibeBaselineBody
-    schtasks /create /tn 'MT5-VibeBaseline' /tr $vibeBaselineAction /sc daily /st 04:00 /it /f | Out-Null
+    schtasks /create /tn 'MT5-VibeBaseline' /tr $vibeBaselineAction /sc daily /st 04:00 /ru SYSTEM /f | Out-Null
     if ($LASTEXITCODE) { Write-Host '  WARN: MT5-VibeBaseline create failed (continuing)' -ForegroundColor Yellow }
     Set-MT5TaskReliability -TaskName 'MT5-VibeBaseline' -ExecutionMinutes 35
-    $vibeBody = "& '$vibeRunner' -SidecarRoot 'C:\mt5-vibe-research' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 60 *>> 'C:\mt5-paper\analytics\vibe-research.log'`r`nexit `$LASTEXITCODE"
+    $vibeBody = "& '$vibeRunner' -SidecarRoot 'C:\mt5-vibe-research' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 60 -SkipAgent *>> 'C:\mt5-paper\analytics\vibe-research.log'`r`nexit `$LASTEXITCODE"
     $vibeAction = New-HiddenTaskAction -Name 'vibe-research' -Body $vibeBody
-    schtasks /create /tn 'MT5-VibeResearch' /tr $vibeAction /sc weekly /d SUN /st 15:30 /it /f | Out-Null
+    schtasks /create /tn 'MT5-VibeResearch' /tr $vibeAction /sc weekly /d SUN /st 15:30 /ru SYSTEM /f | Out-Null
     if ($LASTEXITCODE) { Write-Host '  WARN: MT5-VibeResearch create failed (continuing)' -ForegroundColor Yellow }
     Set-MT5TaskReliability -TaskName 'MT5-VibeResearch' -ExecutionMinutes 70
     $vibeShadowRunner = "$repo\scripts\run-vibe-shadow-once.ps1"
     if (Test-Path $vibeShadowRunner) {
         $vibeShadowBody = "`$env:MT5_PYTHON='$py'`r`n& '$vibeShadowRunner' -SidecarRoot 'C:\mt5-vibe-research' *>> 'C:\mt5-paper\analytics\vibe-shadow-launcher.log'`r`nexit `$LASTEXITCODE"
         $vibeShadowAction = New-HiddenTaskAction -Name 'vibe-shadow' -Body $vibeShadowBody
-        schtasks /create /tn 'MT5-VibeShadow' /tr $vibeShadowAction /sc minute /mo 5 /it /f | Out-Null
+        schtasks /create /tn 'MT5-VibeShadow' /tr $vibeShadowAction /sc minute /mo 5 /ru SYSTEM /f | Out-Null
         if ($LASTEXITCODE) { Write-Host '  WARN: MT5-VibeShadow create failed (continuing)' -ForegroundColor Yellow }
         Set-MT5TaskReliability -TaskName 'MT5-VibeShadow' -ExecutionMinutes 4
     }

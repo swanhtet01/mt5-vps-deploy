@@ -18,3 +18,12 @@ def test_vibe_shadow_task_runs_as_system_in_the_background():
 
     assert "/RU SYSTEM /F" in source
     assert "/it" not in source.lower()
+
+
+def test_updater_preserves_background_vibe_tasks_after_a_vps_update():
+    source = (ROOT / "update.ps1").read_text(encoding="utf-8")
+
+    assert "MT5-VibeBaseline' /tr $vibeBaselineAction /sc daily /st 04:00 /ru SYSTEM /f" in source
+    assert "MT5-VibeResearch' /tr $vibeAction /sc weekly /d SUN /st 15:30 /ru SYSTEM /f" in source
+    assert "MT5-VibeShadow' /tr $vibeShadowAction /sc minute /mo 5 /ru SYSTEM /f" in source
+    assert "-TimeoutMinutes 60 -SkipAgent" in source
