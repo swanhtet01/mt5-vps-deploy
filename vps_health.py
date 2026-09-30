@@ -52,6 +52,8 @@ VIBE_AGENT_MAX_AGE_HOURS = 8.0 * 24.0
 VIBE_SHADOW_STATE = DATA_CACHE / "vibe_shadow_forward_state.json"
 VIBE_SHADOW_REPORT = DATA_CACHE / "vibe_shadow_forward_report.json"
 VIBE_SHADOW_MAX_AGE_MINUTES = 20.0
+VIBE_MINIMUM_DSR_PROBABILITY = 0.95
+VIBE_MAXIMUM_PBO = 0.20
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
 VIBE_DENIED_TOOL_FRAGMENTS = (
     "order", "trading_", "connector", "mandate", "bash", "shell", "write", "background",
@@ -375,6 +377,82 @@ def _state_age_hours(value, reference: datetime) -> float | None:
         return None
 
 
+def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
+    """Summarize statistical rejection gates without treating no-edge as downtime."""
+    summary: dict = {}
+    problems: list[str] = []
+    method = screen.get("method") if isinstance(screen, dict) else None
+    selection = screen.get("selection_overfitting") if isinstance(screen, dict) else None
+    results = screen.get("results") if isinstance(screen, dict) else None
+    if (
+        not isinstance(method, dict)
+        or method.get("deflated_sharpe_required") is not True
+        or method.get("pbo_cscv_required") is not True
+        or method.get("minimum_deflated_sharpe_probability") != VIBE_MINIMUM_DSR_PROBABILITY
+        or method.get("maximum_probability_backtest_overfitting") != VIBE_MAXIMUM_PBO
+    ):
+        problems.append("Vibe candidate screen statistical method contract is invalid")
+    if not isinstance(selection, dict):
+        problems.append("Vibe candidate screen PBO report is missing")
+        return summary, problems
+
+    pbo_status = selection.get("status")
+    pbo_probability = selection.get("probability_backtest_overfitting")
+    pbo_valid = isinstance(pbo_probability, (int, float)) and 0 <= pbo_probability <= 1
+    if (
+        selection.get("method") != "combinatorially_symmetric_cross_validation"
+        or selection.get("partitions") != 8
+        or selection.get("maximum_probability_backtest_overfitting") != VIBE_MAXIMUM_PBO
+        or pbo_status not in {"AVAILABLE", "INSUFFICIENT_DATA"}
+        or (pbo_status == "AVAILABLE" and not pbo_valid)
+        or (pbo_status == "INSUFFICIENT_DATA" and pbo_probability is not None)
+    ):
+        problems.append("Vibe candidate screen PBO contract is invalid")
+    pbo_pass = bool(
+        pbo_status == "AVAILABLE"
+        and pbo_valid
+        and float(pbo_probability) <= VIBE_MAXIMUM_PBO
+    )
+    if not isinstance(results, list):
+        problems.append("Vibe candidate screen results are missing")
+        results = []
+    for item in results:
+        multiple = item.get("multiple_testing") if isinstance(item, dict) else None
+        if (
+            not isinstance(multiple, dict)
+            or multiple.get("minimum_deflated_sharpe_probability")
+            != VIBE_MINIMUM_DSR_PROBABILITY
+            or not isinstance(multiple.get("family_pbo_pass"), bool)
+            or multiple.get("family_pbo_pass") != pbo_pass
+        ):
+            problems.append("Vibe candidate result statistical gates are invalid")
+            break
+        if item.get("historical_screen_pass") is True:
+            dsr = multiple.get("deflated_sharpe_probability")
+            if not isinstance(dsr, (int, float)) or dsr < VIBE_MINIMUM_DSR_PROBABILITY or not pbo_pass:
+                problems.append("Vibe candidate pass bypasses DSR or PBO")
+                break
+
+    if problems:
+        decision = "INVALID_ARTIFACT"
+    elif pbo_status == "INSUFFICIENT_DATA":
+        decision = "REJECTED_INSUFFICIENT_EVIDENCE"
+    elif pbo_pass:
+        decision = "PBO_ACCEPTED"
+    else:
+        decision = "REJECTED_OVERFIT_RISK"
+    summary.update(
+        statistical_gate_status="VALID" if not problems else "INVALID",
+        research_family_decision=decision,
+        pbo_status=pbo_status,
+        pbo_probability=pbo_probability,
+        pbo_maximum=VIBE_MAXIMUM_PBO,
+        pbo_evaluated_splits=selection.get("evaluated_splits"),
+        dsr_minimum=VIBE_MINIMUM_DSR_PROBABILITY,
+    )
+    return summary, problems
+
+
 def check_vibe_sidecar(now: datetime | None = None):
     install_path = VIBE_ROOT / "install.json"
     if not install_path.exists():
@@ -512,6 +590,9 @@ def check_vibe_sidecar(now: datetime | None = None):
         result["historical_screen_pass_count"] = screen.get("historical_screen_pass_count")
         result["paper_candidate_count"] = screen.get("paper_candidate_count")
         result["live_eligible_count"] = screen.get("live_eligible_count")
+        statistical_summary, statistical_problems = _vibe_screen_statistics(screen)
+        result.update(statistical_summary)
+        blockers.extend(statistical_problems)
     if not chart_path.is_file() or not _within(chart_path, reports_root):
         blockers.append("Vibe baseline chart is missing or outside the reports root")
 
