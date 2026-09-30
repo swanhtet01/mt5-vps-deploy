@@ -34,3 +34,4 @@ def test_maintenance_and_auto_deploy_do_not_require_an_open_vnc_session():
 
     assert "MT5-Maintenance' /tr $maintenanceAction /sc daily /st 03:00 /ru SYSTEM /f" in source
     assert "MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /ru SYSTEM /rl HIGHEST /f" in source
+    assert "Set-MT5TaskReliability -TaskName 'MT5-AutoDeploy' -ExecutionMinutes 45" in source
