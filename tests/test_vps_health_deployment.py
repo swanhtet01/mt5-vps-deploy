@@ -1,0 +1,77 @@
+from __future__ import annotations
+
+import json
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "hotfix" / "scripts"))
+
+import vps_health  # noqa: E402
+
+
+def _configure_paths(monkeypatch, tmp_path: Path) -> tuple[Path, Path, Path]:
+    receipt = tmp_path / "deployment_receipt.json"
+    deployed = tmp_path / "last_deploy_sha.txt"
+    completed = tmp_path / "last_update_complete.txt"
+    monkeypatch.setattr(vps_health, "DEPLOYMENT_RECEIPT_FILE", receipt)
+    monkeypatch.setattr(vps_health, "DEPLOY_SUCCESS_FILE", deployed)
+    monkeypatch.setattr(vps_health, "UPDATE_COMPLETION_FILE", completed)
+    return receipt, deployed, completed
+
+
+def test_deployment_receipt_proves_exact_commit(monkeypatch, tmp_path: Path):
+    receipt, deployed, completed = _configure_paths(monkeypatch, tmp_path)
+    commit = "a" * 40
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema": "mt5.deployment_receipt.v1",
+                "commit": commit,
+                "completed_at": "2026-09-30T12:00:00Z",
+                "manifest_sha256": "b" * 64,
+                "hotfix_file_count": 60,
+                "live_authorization_changed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    deployed.write_text(commit, encoding="utf-8")
+    completed.write_text(commit, encoding="utf-8")
+
+    result = vps_health.check_deployment_receipt(
+        datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
+    )
+
+    assert result["status"] == "OK"
+    assert result["commit"] == commit
+    assert result["age_hours"] == 1.0
+
+
+def test_deployment_receipt_warns_on_marker_mismatch(monkeypatch, tmp_path: Path):
+    receipt, deployed, completed = _configure_paths(monkeypatch, tmp_path)
+    commit = "a" * 40
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema": "mt5.deployment_receipt.v1",
+                "commit": commit,
+                "completed_at": "2026-09-30T12:00:00Z",
+                "manifest_sha256": "b" * 64,
+                "hotfix_file_count": 60,
+                "live_authorization_changed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    deployed.write_text("c" * 40, encoding="utf-8")
+    completed.write_text(commit, encoding="utf-8")
+
+    result = vps_health.check_deployment_receipt(
+        datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
+    )
+
+    assert result["status"] == "WARN"
+    assert "last_deploy_sha does not match" in result["reason"]

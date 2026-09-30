@@ -56,6 +56,10 @@ VIBE_MINIMUM_DSR_PROBABILITY = 0.95
 VIBE_MAXIMUM_PBO = 0.20
 VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
+DEPLOY_ROOT = Path(r"C:\mt5-deploy")
+DEPLOYMENT_RECEIPT_FILE = DEPLOY_ROOT / "deployment_receipt.json"
+DEPLOY_SUCCESS_FILE = DEPLOY_ROOT / "last_deploy_sha.txt"
+UPDATE_COMPLETION_FILE = DEPLOY_ROOT / "last_update_complete.txt"
 VIBE_DENIED_TOOL_FRAGMENTS = (
     "order", "trading_", "connector", "mandate", "bash", "shell", "write", "background",
 )
@@ -734,6 +738,58 @@ def check_log_sizes():
     return {"status": status, "total_mb": round(total_mb, 1), "breakdown": breakdown}
 
 
+def check_deployment_receipt(now: datetime | None = None) -> dict:
+    """Prove the immutable commit recorded by the updater matches both success markers."""
+    reference = now or datetime.now(tz=timezone.utc)
+    receipt = read_json(DEPLOYMENT_RECEIPT_FILE) or {}
+    result = {
+        "status": "OK",
+        "artifact": str(DEPLOYMENT_RECEIPT_FILE),
+        "schema": receipt.get("schema"),
+        "commit": receipt.get("commit"),
+        "completed_at": receipt.get("completed_at"),
+        "manifest_sha256": receipt.get("manifest_sha256"),
+        "hotfix_file_count": receipt.get("hotfix_file_count"),
+        "live_authorization_changed": receipt.get("live_authorization_changed"),
+    }
+    blockers: list[str] = []
+    commit = str(receipt.get("commit") or "").strip().lower()
+    manifest_sha = str(receipt.get("manifest_sha256") or "").strip().lower()
+    if receipt.get("schema") != "mt5.deployment_receipt.v1":
+        blockers.append("deployment receipt schema is missing or invalid")
+    if not re.fullmatch(r"[0-9a-f]{40}", commit):
+        blockers.append("deployment receipt commit is invalid")
+    if not re.fullmatch(r"[0-9a-f]{64}", manifest_sha):
+        blockers.append("deployment receipt manifest hash is invalid")
+    if not isinstance(receipt.get("hotfix_file_count"), int) or receipt.get("hotfix_file_count", 0) < 1:
+        blockers.append("deployment receipt hotfix count is invalid")
+    if receipt.get("live_authorization_changed") is not False:
+        blockers.append("deployment receipt does not prove unchanged live authorization")
+
+    completed_at = receipt.get("completed_at")
+    completed_age = _state_age_hours(completed_at, reference)
+    if completed_age is None or completed_age < -(5.0 / 60.0):
+        blockers.append("deployment receipt timestamp is invalid or future-dated")
+    else:
+        result["age_hours"] = round(completed_age, 2)
+
+    markers: dict[str, str] = {}
+    for label, path in (
+        ("last_deploy_sha", DEPLOY_SUCCESS_FILE),
+        ("last_update_complete", UPDATE_COMPLETION_FILE),
+    ):
+        try:
+            markers[label] = path.read_text(encoding="utf-8-sig").strip().lower()
+        except OSError:
+            markers[label] = ""
+        if markers[label] != commit:
+            blockers.append(f"{label} does not match deployment receipt")
+    result["markers"] = markers
+    if blockers:
+        result.update(status="WARN", reason="; ".join(blockers), blockers=blockers)
+    return result
+
+
 def check_profit_funded_scaling(now: datetime | None = None) -> dict:
     reference = now or datetime.now(tz=timezone.utc)
     payload = read_json(PROFIT_SCALING_FILE) or {}
@@ -883,6 +939,7 @@ def main():
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
+        "deployment_receipt": check_deployment_receipt(),
         "alerting": check_alerting(),
         "freshness": check_freshness(),
         "log_sizes": check_log_sizes(),

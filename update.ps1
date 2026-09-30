@@ -92,6 +92,8 @@ if ($deployRef -notmatch '^[0-9a-fA-F]{40}$') {
     throw 'Could not resolve an immutable deploy commit.'
 }
 $rawBase = "https://raw.githubusercontent.com/$ghRepo/$deployRef"
+$hotfixManifestSha256 = $null
+$hotfixFileCount = 0
 
 function Sync-Hotfixes {
     $manifestResponse = Invoke-WebRequest "$rawBase/hotfix-manifest.json" `
@@ -100,6 +102,16 @@ function Sync-Hotfixes {
     if ($manifest.schema_version -ne 1 -or -not $manifest.files) {
         throw 'Invalid or empty hotfix manifest.'
     }
+    $manifestBytes = [Text.Encoding]::UTF8.GetBytes([string]$manifestResponse.Content)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {
+        $script:hotfixManifestSha256 = ([BitConverter]::ToString(
+            $hasher.ComputeHash($manifestBytes)
+        ) -replace '-', '').ToLowerInvariant()
+    } finally {
+        $hasher.Dispose()
+    }
+    $script:hotfixFileCount = @($manifest.files).Count
     $repoPrefix = [IO.Path]::GetFullPath($repo.TrimEnd('\') + '\')
     # Two phases. The old loop downloaded, verified and MOVED each file in turn, so a throw
     # partway through -- a 404, or one stale sha256 -- left the first k files new and the rest
@@ -511,6 +523,30 @@ if ($ok) {
     }
 }
 }
+
+# Persist an atomic, machine-readable receipt before the completion marker. Health checks
+# cross-check this against both success markers, so a transient phone notification is no
+# longer the only evidence that a specific immutable commit reached the VPS.
+if ($hotfixManifestSha256 -notmatch '^[0-9a-f]{64}$' -or $hotfixFileCount -lt 1) {
+    throw 'Cannot write deployment receipt without a verified hotfix manifest.'
+}
+$deploymentReceiptPath = Join-Path $deploy 'deployment_receipt.json'
+$deploymentReceiptTemp = "$deploymentReceiptPath.$PID.tmp"
+$deploymentReceipt = [ordered]@{
+    schema = 'mt5.deployment_receipt.v1'
+    commit = $deployRef.ToLowerInvariant()
+    completed_at = (Get-Date).ToUniversalTime().ToString('o')
+    manifest_sha256 = $hotfixManifestSha256
+    hotfix_file_count = $hotfixFileCount
+    live_authorization_changed = $false
+}
+$deploymentReceiptJson = $deploymentReceipt | ConvertTo-Json -Depth 4
+[IO.File]::WriteAllText(
+    $deploymentReceiptTemp,
+    $deploymentReceiptJson + "`n",
+    (New-Object Text.UTF8Encoding($false))
+)
+Move-Item $deploymentReceiptTemp $deploymentReceiptPath -Force
 
 # Completion marker, written only if execution actually reached the end of this file.
 # auto_deploy.ps1 refuses to record a deploy as successful unless this names the commit it

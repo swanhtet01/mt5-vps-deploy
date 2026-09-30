@@ -16,3 +16,15 @@ def test_auto_deploy_receipt_is_best_effort_and_after_completion_marker():
 
     receipt_block = script[script.index(receipt) :]
     assert "SetEnvironmentVariable('MT5_GOLD_DRIFT_LIVE'" not in receipt_block
+
+
+def test_durable_deployment_receipt_precedes_success_marker():
+    script = (ROOT / "update.ps1").read_text(encoding="utf-8")
+
+    durable = "$deploymentReceipt = [ordered]@{"
+    marker = 'Set-Content "$deploy\\last_update_complete.txt" $deployRef -NoNewline'
+    assert durable in script
+    assert script.index(durable) < script.index(marker)
+    assert "mt5.deployment_receipt.v1" in script
+    assert "manifest_sha256 = $hotfixManifestSha256" in script
+    assert "live_authorization_changed = $false" in script
