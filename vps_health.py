@@ -31,6 +31,7 @@ import MetaTrader5 as mt5
 
 from mt5_agent.mt5_execution import persistent_user_flag_enabled
 from mt5_agent.profit_funded_scaling import SCHEMA as PROFIT_SCALING_SCHEMA
+from mt5_agent.edge_registry import EdgeRegistry
 
 # Use the shared path resolver so this runs on the VPS (C:\trading-agent) AND the dev PC,
 # instead of the old hardcoded OneDrive paths (which broke health/news/blacklist on the VPS).
@@ -57,6 +58,7 @@ VIBE_MAXIMUM_PBO = 0.20
 VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION = 0.25
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
+EDGE_REGISTRY_FILE = DATA_CACHE / "edge_registry.json"
 DEPLOY_ROOT = Path(r"C:\mt5-deploy")
 DEPLOYMENT_RECEIPT_FILE = DEPLOY_ROOT / "deployment_receipt.json"
 DEPLOY_SUCCESS_FILE = DEPLOY_ROOT / "last_deploy_sha.txt"
@@ -816,6 +818,32 @@ def check_deployment_receipt(now: datetime | None = None) -> dict:
     return result
 
 
+def check_edge_registry() -> dict:
+    """Expose malformed or unvalidated LIVE registry records before scheduling can use them."""
+    result = {"status": "OK", "artifact": str(EDGE_REGISTRY_FILE), "configured": False}
+    if not EDGE_REGISTRY_FILE.exists():
+        return result
+    result["configured"] = True
+    try:
+        raw = json.loads(EDGE_REGISTRY_FILE.read_text(encoding="utf-8"))
+        raw_edges = raw.get("edges") if isinstance(raw, dict) else None
+        if not isinstance(raw_edges, list):
+            raise ValueError("edges must be a list")
+        registry = EdgeRegistry(EDGE_REGISTRY_FILE)
+        loaded = registry.all()
+        result["record_count"] = len(loaded)
+        if len(loaded) != len(raw_edges):
+            raise ValueError("one or more registry records are malformed")
+        invalid_live = [edge.key for edge in registry.audit_live_unvalidated()]
+        result["live_count"] = len(registry.live())
+        result["unvalidated_live_keys"] = invalid_live
+        if invalid_live:
+            result.update(status="WARN", reason="unvalidated LIVE registry records", blockers=invalid_live)
+    except (OSError, ValueError, json.JSONDecodeError) as exc:
+        result.update(status="WARN", reason=f"edge registry is invalid: {exc}")
+    return result
+
+
 def check_profit_funded_scaling(now: datetime | None = None) -> dict:
     reference = now or datetime.now(tz=timezone.utc)
     payload = read_json(PROFIT_SCALING_FILE) or {}
@@ -965,6 +993,7 @@ def main():
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
+        "edge_registry": check_edge_registry(),
         "deployment_receipt": check_deployment_receipt(),
         "alerting": check_alerting(),
         "freshness": check_freshness(),
