@@ -49,7 +49,7 @@
     {
       "source": "hotfix/scripts/structural_scheduler.py",
       "destination": "scripts/structural_scheduler.py",
-      "sha256": "adb2aabe5216bd8ab54898b215f8adbf63430bab0df3e63fa43cbb4fdd91e7d5"
+      "sha256": "21a07edfb3d7d180fca5e61780b497c64577988d286bb2812ec64538f9bbf9b9"
     },
     {
       "source": "hotfix/scripts/structural_walk_forward.py",
@@ -124,7 +124,7 @@
     {
       "source": "hotfix/src/mt5_agent/paper_protections.py",
       "destination": "src/mt5_agent/paper_protections.py",
-      "sha256": "663d686e8644cb9f386fb21470f95a1efb024fb4eb85cebc85633370a16cc517"
+      "sha256": "45178e54dc1be1e8396f8d141271e9e27847d102b0683f7e99972312d0ee8f87"
     },
     {
       "source": "hotfix/research/vibe_research_prompt.txt",

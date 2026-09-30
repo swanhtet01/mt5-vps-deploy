@@ -30,3 +30,23 @@ def admission(
     if len(positions) >= MAX_OPEN_PAPER_POSITIONS:
         return False, "paper portfolio concurrency protection"
     return True, "admitted"
+
+
+def control_block_reason(control_state: Mapping[str, object], symbol: str, magic: int) -> str:
+    """Return a fail-closed operator block reason from the shared blacklist state."""
+    remote = control_state.get("remote_control")
+    if isinstance(remote, Mapping) and remote.get("pause_all") is True:
+        return "remote control pause_all"
+    entries = control_state.get("entries")
+    if not isinstance(entries, list):
+        return ""
+    for entry in entries:
+        if not isinstance(entry, Mapping):
+            continue
+        try:
+            matched = str(entry.get("symbol") or "") == symbol and int(entry.get("magic")) == magic
+        except (TypeError, ValueError):
+            continue
+        if matched:
+            return str(entry.get("reason") or "blacklisted")
+    return ""

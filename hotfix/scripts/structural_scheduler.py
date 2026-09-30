@@ -29,7 +29,7 @@ from typing import Iterable, Mapping
 import MetaTrader5 as mt5
 
 from mt5_agent.edge_registry import EdgeRegistry
-from mt5_agent.paper_protections import admission as paper_admission
+from mt5_agent.paper_protections import admission as paper_admission, control_block_reason
 from mt5_agent.structural_challengers import paper_specs as receipt_paper_specs
 from mt5_agent.mt5_execution import (
     FeedClockProvenance,
@@ -43,7 +43,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
-from paths import DATA_CACHE, PAPER_ROOT, read_json, write_json_atomic  # noqa: E402
+from paths import BLACKLIST_FILE, DATA_CACHE, PAPER_ROOT, read_json, write_json_atomic  # noqa: E402
 
 
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
@@ -505,6 +505,19 @@ def _run_entry(
     allowlist: set[int],
 ) -> None:
     magic = int(spec["magic"])
+    block_reason = control_block_reason(
+        read_json(BLACKLIST_FILE, default={}), str(spec.get("symbol") or ""), magic
+    )
+    if block_reason:
+        _append_event({
+            "event": "entry_skipped",
+            "signal": name,
+            "magic": magic,
+            "symbol": spec.get("symbol"),
+            "reason": f"remote/operator control: {block_reason}",
+            **clock.as_dict(),
+        })
+        return
     if bool(spec.get("paper_only")):
         _paper_evaluate(name, spec, clock, "research candidate is permanently paper-only")
         return
