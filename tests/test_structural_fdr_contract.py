@@ -24,3 +24,4 @@ def test_structural_walk_forward_records_and_requires_cumulative_fdr():
     assert "FDRLedger" in names
     assert "cumulative_discovery" in names
     assert "cumulative_fdr_ledger_required" in source
+    assert "_agent_package.__path__" in source
