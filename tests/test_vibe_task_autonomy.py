@@ -27,3 +27,10 @@ def test_updater_preserves_background_vibe_tasks_after_a_vps_update():
     assert "MT5-VibeResearch' /tr $vibeAction /sc weekly /d SUN /st 15:30 /ru SYSTEM /f" in source
     assert "MT5-VibeShadow' /tr $vibeShadowAction /sc minute /mo 5 /ru SYSTEM /f" in source
     assert "-TimeoutMinutes 60 -SkipAgent" in source
+
+
+def test_maintenance_and_auto_deploy_do_not_require_an_open_vnc_session():
+    source = (ROOT / "update.ps1").read_text(encoding="utf-8")
+
+    assert "MT5-Maintenance' /tr $maintenanceAction /sc daily /st 03:00 /ru SYSTEM /f" in source
+    assert "MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /ru SYSTEM /rl HIGHEST /f" in source
