@@ -94,10 +94,12 @@ if ($deployRef -notmatch '^[0-9a-fA-F]{40}$') {
 $rawBase = "https://raw.githubusercontent.com/$ghRepo/$deployRef"
 $hotfixManifestSha256 = $null
 $hotfixFileCount = 0
+$hotfixManifestContent = $null
 
 function Sync-Hotfixes {
     $manifestResponse = Invoke-WebRequest "$rawBase/hotfix-manifest.json" `
         -UseBasicParsing -TimeoutSec 20 -Headers @{'Cache-Control'='no-cache'}
+    $script:hotfixManifestContent = [string]$manifestResponse.Content
     $manifest = $manifestResponse.Content | ConvertFrom-Json
     if ($manifest.schema_version -ne 1 -or -not $manifest.files) {
         throw 'Invalid or empty hotfix manifest.'
@@ -541,6 +543,19 @@ if ($ok) {
 if ($hotfixManifestSha256 -notmatch '^[0-9a-f]{64}$' -or $hotfixFileCount -lt 1) {
     throw 'Cannot write deployment receipt without a verified hotfix manifest.'
 }
+$deploymentManifestPath = Join-Path $deploy 'hotfix-manifest.json'
+$deploymentManifestTemp = "$deploymentManifestPath.$PID.tmp"
+if ([string]::IsNullOrWhiteSpace($hotfixManifestContent)) {
+    throw 'Cannot persist an empty verified hotfix manifest.'
+}
+# Keep the exact verified manifest beside the receipt. Health re-hashes this payload and every
+# installed destination, so the receipt remains useful after the updater process has exited.
+[IO.File]::WriteAllText(
+    $deploymentManifestTemp,
+    $hotfixManifestContent,
+    (New-Object Text.UTF8Encoding($false))
+)
+Move-Item $deploymentManifestTemp $deploymentManifestPath -Force
 $deploymentReceiptPath = Join-Path $deploy 'deployment_receipt.json'
 $deploymentReceiptTemp = "$deploymentReceiptPath.$PID.tmp"
 $deploymentReceipt = [ordered]@{

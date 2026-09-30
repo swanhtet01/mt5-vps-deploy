@@ -12,18 +12,37 @@ sys.path.insert(0, str(ROOT / "hotfix" / "scripts"))
 import vps_health  # noqa: E402
 
 
-def _configure_paths(monkeypatch, tmp_path: Path) -> tuple[Path, Path, Path]:
+def _configure_paths(monkeypatch, tmp_path: Path) -> tuple[Path, Path, Path, Path]:
     receipt = tmp_path / "deployment_receipt.json"
+    manifest = tmp_path / "hotfix-manifest.json"
     deployed = tmp_path / "last_deploy_sha.txt"
     completed = tmp_path / "last_update_complete.txt"
     monkeypatch.setattr(vps_health, "DEPLOYMENT_RECEIPT_FILE", receipt)
+    monkeypatch.setattr(vps_health, "DEPLOYMENT_MANIFEST_FILE", manifest)
     monkeypatch.setattr(vps_health, "DEPLOY_SUCCESS_FILE", deployed)
     monkeypatch.setattr(vps_health, "UPDATE_COMPLETION_FILE", completed)
-    return receipt, deployed, completed
+    monkeypatch.setattr(vps_health, "DEPLOYED_REPO_ROOT", tmp_path / "installed")
+    return receipt, manifest, deployed, completed
+
+
+def _write_integrity_manifest(monkeypatch, tmp_path: Path, manifest: Path) -> str:
+    installed = vps_health.DEPLOYED_REPO_ROOT / "scripts"
+    installed.mkdir(parents=True)
+    target = installed / "vps_health.py"
+    target.write_text("verified deployment", encoding="utf-8")
+    payload = {
+        "schema_version": 1,
+        "files": [{
+            "destination": "scripts/vps_health.py",
+            "sha256": vps_health._file_sha256(target),
+        }],
+    }
+    manifest.write_text(json.dumps(payload), encoding="utf-8")
+    return vps_health._file_sha256(manifest)
 
 
 def test_deployment_receipt_proves_exact_commit(monkeypatch, tmp_path: Path):
-    receipt, deployed, completed = _configure_paths(monkeypatch, tmp_path)
+    receipt, manifest, deployed, completed = _configure_paths(monkeypatch, tmp_path)
     commit = "a" * 40
     receipt.write_text(
         json.dumps(
@@ -31,8 +50,8 @@ def test_deployment_receipt_proves_exact_commit(monkeypatch, tmp_path: Path):
                 "schema": "mt5.deployment_receipt.v1",
                 "commit": commit,
                 "completed_at": "2026-09-30T12:00:00Z",
-                "manifest_sha256": "b" * 64,
-                "hotfix_file_count": 60,
+                "manifest_sha256": _write_integrity_manifest(monkeypatch, tmp_path, manifest),
+                "hotfix_file_count": 1,
                 "live_authorization_changed": False,
             }
         ),
@@ -48,10 +67,11 @@ def test_deployment_receipt_proves_exact_commit(monkeypatch, tmp_path: Path):
     assert result["status"] == "OK"
     assert result["commit"] == commit
     assert result["age_hours"] == 1.0
+    assert result["verified_hotfix_files"] == 1
 
 
 def test_deployment_receipt_warns_on_marker_mismatch(monkeypatch, tmp_path: Path):
-    receipt, deployed, completed = _configure_paths(monkeypatch, tmp_path)
+    receipt, _manifest, deployed, completed = _configure_paths(monkeypatch, tmp_path)
     commit = "a" * 40
     receipt.write_text(
         json.dumps(
@@ -75,6 +95,36 @@ def test_deployment_receipt_warns_on_marker_mismatch(monkeypatch, tmp_path: Path
 
     assert result["status"] == "WARN"
     assert "last_deploy_sha does not match" in result["reason"]
+
+
+def test_deployment_receipt_warns_when_installed_hotfix_changes(monkeypatch, tmp_path: Path):
+    receipt, manifest, deployed, completed = _configure_paths(monkeypatch, tmp_path)
+    commit = "a" * 40
+    manifest_sha = _write_integrity_manifest(monkeypatch, tmp_path, manifest)
+    target = vps_health.DEPLOYED_REPO_ROOT / "scripts" / "vps_health.py"
+    target.write_text("tampered after deployment", encoding="utf-8")
+    receipt.write_text(
+        json.dumps(
+            {
+                "schema": "mt5.deployment_receipt.v1",
+                "commit": commit,
+                "completed_at": "2026-09-30T12:00:00Z",
+                "manifest_sha256": manifest_sha,
+                "hotfix_file_count": 1,
+                "live_authorization_changed": False,
+            }
+        ),
+        encoding="utf-8",
+    )
+    deployed.write_text(commit, encoding="utf-8")
+    completed.write_text(commit, encoding="utf-8")
+
+    result = vps_health.check_deployment_receipt(
+        datetime(2026, 9, 30, 13, 0, tzinfo=timezone.utc)
+    )
+
+    assert result["status"] == "WARN"
+    assert "deployed hotfix hash mismatch" in result["reason"]
 
 
 def test_edge_registry_health_warns_for_unvalidated_live_record(monkeypatch, tmp_path: Path):
