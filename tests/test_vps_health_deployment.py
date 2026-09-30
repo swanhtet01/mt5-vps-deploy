@@ -278,3 +278,17 @@ def test_structural_paper_challenger_health_reports_zero_without_warning(monkeyp
 
     assert result["status"] == "OK"
     assert result["paper_challenger_count"] == 0
+
+
+def test_structural_paper_forward_health_rejects_duplicate_symbol(monkeypatch, tmp_path: Path):
+    state = tmp_path / "structural_paper_forward_state.json"
+    state.write_text(json.dumps({"open_positions": [
+        {"signal": "A", "symbol": "GOLD"},
+        {"signal": "B", "symbol": "GOLD"},
+    ]}), encoding="utf-8")
+    monkeypatch.setattr(vps_health, "STRUCTURAL_PAPER_FORWARD_STATE", state)
+
+    result = vps_health.check_structural_paper_forward_state()
+
+    assert result["status"] == "WARN"
+    assert "symbol concurrency" in result["reason"]

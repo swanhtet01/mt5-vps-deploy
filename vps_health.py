@@ -32,6 +32,10 @@ import MetaTrader5 as mt5
 from mt5_agent.mt5_execution import persistent_user_flag_enabled
 from mt5_agent.profit_funded_scaling import SCHEMA as PROFIT_SCALING_SCHEMA
 from mt5_agent.edge_registry import EdgeRegistry
+from mt5_agent.paper_protections import (
+    MAX_OPEN_PAPER_POSITIONS,
+    MAX_OPEN_PAPER_POSITIONS_PER_SYMBOL,
+)
 from mt5_agent.structural_challengers import paper_challenger_status
 
 # Use the shared path resolver so this runs on the VPS (C:\trading-agent) AND the dev PC,
@@ -59,6 +63,7 @@ VIBE_MAXIMUM_PBO = 0.20
 VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION = 0.25
 STRUCTURAL_RESEARCH_STATE = DATA_CACHE / "structural_walk_forward_state.json"
+STRUCTURAL_PAPER_FORWARD_STATE = DATA_CACHE / "structural_paper_forward_state.json"
 STRUCTURAL_RESEARCH_MAX_AGE_HOURS = 8.0 * 24.0
 STRUCTURAL_CANONICAL_SYMBOLS = frozenset({
     "GOLD", "SILVER", "OILCash", "BTCUSD", "ETHUSD", "US500Cash", "USDJPY",
@@ -455,6 +460,38 @@ def check_structural_paper_challengers(now: datetime | None = None) -> dict:
             "receipt": str(STRUCTURAL_RESEARCH_STATE),
             "reason": f"structural paper challenger receipt is invalid: {exc}",
         }
+
+
+def check_structural_paper_forward_state() -> dict:
+    """Verify persisted simulated positions remain inside shared paper protections."""
+    result = {
+        "status": "OK",
+        "mode": "paper_only",
+        "artifact": str(STRUCTURAL_PAPER_FORWARD_STATE),
+        "max_open_positions": MAX_OPEN_PAPER_POSITIONS,
+        "max_open_positions_per_symbol": MAX_OPEN_PAPER_POSITIONS_PER_SYMBOL,
+    }
+    if not STRUCTURAL_PAPER_FORWARD_STATE.exists():
+        return {**result, "state_present": False, "open_positions": 0}
+    state = read_json(STRUCTURAL_PAPER_FORWARD_STATE, default=None)
+    if not isinstance(state, dict) or not isinstance(state.get("open_positions"), list):
+        return {**result, "status": "WARN", "reason": "structural paper forward state is malformed"}
+    positions = state["open_positions"]
+    symbols = [str(position.get("symbol") or "") for position in positions if isinstance(position, dict)]
+    signals = [str(position.get("signal") or "") for position in positions if isinstance(position, dict)]
+    problems: list[str] = []
+    if len(positions) > MAX_OPEN_PAPER_POSITIONS:
+        problems.append("paper portfolio exceeds concurrency protection")
+    if len(symbols) != len(positions) or len(signals) != len(positions):
+        problems.append("paper position identity is malformed")
+    if len(set(symbols)) != len(symbols):
+        problems.append("paper symbol concurrency protection violated")
+    if len(set(signals)) != len(signals):
+        problems.append("duplicate paper signal is open")
+    result.update(state_present=True, open_positions=len(positions), symbols=sorted(symbols))
+    if problems:
+        result.update(status="WARN", reason="; ".join(problems))
+    return result
 
 
 def _file_sha256(path: Path) -> str:
@@ -1135,6 +1172,7 @@ def main():
         "structural_scheduler": check_structural_scheduler(),
         "structural_research": check_structural_research(),
         "structural_paper_challengers": check_structural_paper_challengers(),
+        "structural_paper_forward": check_structural_paper_forward_state(),
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
