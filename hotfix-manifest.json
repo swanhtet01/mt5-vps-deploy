@@ -109,7 +109,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_handoff.py",
                       "destination":  "src/mt5_agent/vibe_handoff.py",
-                      "sha256":  "780fcc5c57a69a037d37d106df5cd64aa1f7d403dd683e44a58fce9c38f650e2"
+                      "sha256":  "628aa3385150eef742aa933ff70356b0757bf0d068419e9014ef7c9351a1c681"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/edge_registry.py",
