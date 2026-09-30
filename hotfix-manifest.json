@@ -54,7 +54,7 @@
                   {
                       "source":  "hotfix/scripts/structural_walk_forward.py",
                       "destination":  "scripts/structural_walk_forward.py",
-                      "sha256":  "6fe3c6f1bf97683128393926910c0cd0ad08babbbb1433c7b22f95b26c412890"
+                      "sha256":  "44c69e7fd385f5270200e0bce6212bcb3843852faf5cf78b9a539656b12f20d3"
                   },
                   {
                       "source":  "hotfix/scripts/export_vibe_research_bundle.py",
