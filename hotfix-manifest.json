@@ -4,7 +4,7 @@
     {
       "source": "vps_health.py",
       "destination": "scripts/vps_health.py",
-      "sha256": "08c8629c53afaae564281e5ac10702c7c09743407e6ca903ed283b9db400c8a1"
+      "sha256": "a4f06e14ae0b9c1a5eb241bd2f0c69280c6473e9aa0d0fe464dabc69551083c0"
     },
     {
       "source": "hotfix/scripts/paths.py",
@@ -54,7 +54,7 @@
     {
       "source": "hotfix/scripts/structural_walk_forward.py",
       "destination": "scripts/structural_walk_forward.py",
-      "sha256": "44c69e7fd385f5270200e0bce6212bcb3843852faf5cf78b9a539656b12f20d3"
+      "sha256": "f2779263129558910b77f39ffe255591cd017c2c4923159f49a5481fc1ef2995"
     },
     {
       "source": "hotfix/scripts/export_vibe_research_bundle.py",
@@ -120,6 +120,11 @@
       "source": "hotfix/src/mt5_agent/portfolio_budget.py",
       "destination": "src/mt5_agent/portfolio_budget.py",
       "sha256": "251274f4e292a9400a5df4cf0b10838c17787a3ca2d5c9bd502b7d806001183c"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/structural_challengers.py",
+      "destination": "src/mt5_agent/structural_challengers.py",
+      "sha256": "6e27ccc95c651648593ee1ed2a62e64a9e1a96e76b598385f2045b44cdfdd2de"
     },
     {
       "source": "hotfix/src/mt5_agent/paper_protections.py",

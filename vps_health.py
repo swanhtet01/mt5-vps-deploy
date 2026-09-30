@@ -37,7 +37,7 @@ from mt5_agent.paper_protections import (
     MAX_OPEN_PAPER_POSITIONS_PER_SYMBOL,
 )
 from mt5_agent.portfolio_budget import CLUSTER_CAP
-from mt5_agent.structural_challengers import paper_challenger_status
+from mt5_agent.structural_challengers import CANONICAL_UNIVERSE_SHA256, paper_challenger_status
 
 # Use the shared path resolver so this runs on the VPS (C:\trading-agent) AND the dev PC,
 # instead of the old hardcoded OneDrive paths (which broke health/news/blacklist on the VPS).
@@ -440,6 +440,7 @@ def check_structural_research(now: datetime | None = None) -> dict:
                 or scope.get("canonical_full_universe") is not True
                 or scope.get("paper_eligibility_allowed") is not True
                 or scope.get("fdr_family") != "structural_hourweekday"
+                or scope.get("universe_sha256") != CANONICAL_UNIVERSE_SHA256
             ):
                 blockers.append("structural research report is not a canonical no-order full-universe scan")
     if blockers:

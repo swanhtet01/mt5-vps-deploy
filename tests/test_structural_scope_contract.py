@@ -16,3 +16,10 @@ def test_only_full_predeclared_symbol_universe_is_paper_eligible():
 
     assert (family, allowed) == ("structural_hourweekday", True)
     assert (diagnostic_family, diagnostic_allowed) == ("manual", False)
+
+
+def test_universe_fingerprint_is_order_independent_and_membership_bound():
+    canonical = structural.universe_sha256(list(structural.DEFAULT_SYMBOLS))
+
+    assert canonical == structural.universe_sha256(list(reversed(structural.DEFAULT_SYMBOLS)))
+    assert canonical != structural.universe_sha256(structural.DEFAULT_SYMBOLS[:-1])

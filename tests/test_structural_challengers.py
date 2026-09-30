@@ -6,13 +6,19 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "hotfix" / "src"))
-from mt5_agent.structural_challengers import CANONICAL_SYMBOLS, paper_challenger_status, paper_specs
+from mt5_agent.structural_challengers import (
+    CANONICAL_SYMBOLS,
+    CANONICAL_UNIVERSE_SHA256,
+    paper_challenger_status,
+    paper_specs,
+)
 
 
 def _receipt(tmp_path, candidates):
     report = tmp_path / "report.json"
     report.write_text(json.dumps({"mode": "read_only_research", "orders_sent": 0,
-        "research_scope": {"symbols": sorted(CANONICAL_SYMBOLS), "canonical_full_universe": True,
+        "research_scope": {"symbols": sorted(CANONICAL_SYMBOLS), "universe_sha256": CANONICAL_UNIVERSE_SHA256,
+                           "canonical_full_universe": True,
                            "paper_eligibility_allowed": True, "fdr_family": "structural_hourweekday"},
         "paper_candidates": candidates}), encoding="utf-8")
     state = tmp_path / "state.json"
