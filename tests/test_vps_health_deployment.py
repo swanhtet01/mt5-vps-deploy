@@ -75,3 +75,34 @@ def test_deployment_receipt_warns_on_marker_mismatch(monkeypatch, tmp_path: Path
 
     assert result["status"] == "WARN"
     assert "last_deploy_sha does not match" in result["reason"]
+
+
+def test_edge_registry_health_warns_for_unvalidated_live_record(monkeypatch, tmp_path: Path):
+    registry = tmp_path / "edge_registry.json"
+    monkeypatch.setattr(vps_health, "EDGE_REGISTRY_FILE", registry)
+    registry.write_text(
+        json.dumps(
+            {"edges": [{
+                "key": "UNSAFE", "magic": 88010, "symbol": "GOLD", "weekday": 1,
+                "entry_hour": 1, "exit_hour": 2, "side": "long", "stage": "LIVE",
+                "validation": {"bonferroni": False},
+            }]}
+        ),
+        encoding="utf-8",
+    )
+
+    result = vps_health.check_edge_registry()
+
+    assert result["status"] == "WARN"
+    assert result["unvalidated_live_keys"] == ["UNSAFE"]
+
+
+def test_edge_registry_health_rejects_malformed_record(monkeypatch, tmp_path: Path):
+    registry = tmp_path / "edge_registry.json"
+    monkeypatch.setattr(vps_health, "EDGE_REGISTRY_FILE", registry)
+    registry.write_text(json.dumps({"edges": [{"key": "missing fields"}]}), encoding="utf-8")
+
+    result = vps_health.check_edge_registry()
+
+    assert result["status"] == "WARN"
+    assert "malformed" in result["reason"]
