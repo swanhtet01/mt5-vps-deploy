@@ -106,3 +106,22 @@ def test_edge_registry_health_rejects_malformed_record(monkeypatch, tmp_path: Pa
 
     assert result["status"] == "WARN"
     assert "malformed" in result["reason"]
+
+
+def test_structural_health_does_not_report_live_without_registry_eligible_edge(monkeypatch, tmp_path: Path):
+    allowlist = tmp_path / "allowlist.json"
+    events = tmp_path / "events.jsonl"
+    registry = tmp_path / "edge_registry.json"
+    allowlist.write_text(json.dumps({"enabled_magics": [88001]}), encoding="utf-8")
+    events.write_text("{}\n", encoding="utf-8")
+    registry.write_text(json.dumps({"edges": []}), encoding="utf-8")
+    monkeypatch.setattr(vps_health, "SCHEDULER_ALLOWLIST", allowlist)
+    monkeypatch.setattr(vps_health, "SCHEDULER_EVENTS", events)
+    monkeypatch.setattr(vps_health, "EDGE_REGISTRY_FILE", registry)
+    monkeypatch.setattr(vps_health, "persistent_user_flag_enabled", lambda _name: True)
+
+    result = vps_health.check_structural_scheduler()
+
+    assert result["mode"] == "ARMED_NO_ELIGIBLE_EDGE"
+    assert result["effective_allowlisted_magics"] == []
+    assert result["status"] == "WARN"
