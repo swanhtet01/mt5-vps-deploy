@@ -11,7 +11,7 @@ Triggers:
   - 30-day realized loss <= -$60 (10% of $608 equity) → disarm
   - 7-day realized loss <= -$30 → disarm
   - Any 5-trade losing streak → disarm
-  - Account equity drops below $500 (≈18% drawdown) → disarm
+  - Account equity drops below $480 → disarm
 
 When disarmed, the user must MANUALLY re-arm by re-setting MT5_GOLD_DRIFT_LIVE=1 and
 investigating what happened. The bot self-stops; it does not self-restart.
@@ -45,35 +45,12 @@ LIVE_MAGICS = {88001, 88002, 88003, 88004, 88005, 88006, 88007, 88008,
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
 LOG = Path(r"C:\mt5-paper\gold-drift\killswitch.jsonl")
 
-# Hard thresholds (all in USD). RECALIBRATED 2026-08-11: lot sizes scaled 5x (0.01->0.05)
-# so per-trade P&L and variance are 5x larger. Weekly noise floor is now ~$50-150 at 0.05 lot.
-# Old thresholds (-$65/7d, -$110/30d) would false-trip on a single bad structural trade.
-# New thresholds match the user's stated $100 risk tolerance and the 5x position scale-up.
-# Equity floor lowered slightly to give more room while still catching catastrophic drawdowns.
-# WIDENED 2026-09-01 at the account owner's request: the cumulative limits were halting
-# live trading on ordinary variance rather than on genuine loss.
-#
-# The arithmetic that forced this, at ~$632 equity and a $480 floor:
-#   * only $152 of room exists before the equity floor trips at all;
-#   * the -$100 7-day limit therefore sat INSIDE the documented $50-150 weekly noise band
-#     for 0.05 lots -- a normal losing week disarmed live trading and required a manual
-#     re-arm, which is exactly the false-trip being complained about;
-#   * the -$200 30-day limit was already unreachable: $632 - $200 = $432 is below the
-#     floor, so the floor always fired first. It has never once been the binding brake.
-#
-# Both cumulative limits are now set outside the noise band. The honest consequence, stated
-# rather than buried: at this lot size the weekly noise (~$150) is the same magnitude as the
-# whole drawdown budget (~$152), so THE EQUITY FLOOR IS NOW THE ONLY BRAKE THAT CAN FIRE on
-# this balance. The cumulative limits become live again only once equity grows enough to put
-# real distance between it and the floor. If the goal is a working early brake rather than a
-# single catastrophic backstop, the fix is a smaller lot size, not looser thresholds --
-# thresholds cannot create room that the position size has already spent.
-#
-# The floor is deliberately UNCHANGED. It is the one control that still bounds a losing run.
-THRESH_30D_LOSS = -300.0      # was -200, which the floor dominated; outside a month of noise
-THRESH_7D_LOSS = -150.0       # was -100, inside the $50-150 weekly noise band at 0.05 lot
-THRESH_LOSING_STREAK = 10     # was 7; ~1.5 weeks of every edge losing, not a normal streak
-THRESH_EQUITY_FLOOR = 480.0   # UNCHANGED -- ~24% drawdown from $632; the real backstop
+# Hard thresholds (all in USD). These intentionally reject a strategy whose minimum-lot
+# noise is too large for the account instead of loosening the brake to fit the strategy.
+THRESH_30D_LOSS = -60.0
+THRESH_7D_LOSS = -30.0
+THRESH_LOSING_STREAK = 5
+THRESH_EQUITY_FLOOR = 480.0
 REFERENCE_SYMBOLS = ("BTCUSD", "GOLD", "USDJPY")
 
 

@@ -42,14 +42,14 @@ from mt5_agent.mt5_execution import (
 
 SYM = "GOLD"
 MAGIC = 88001
-MAX_LOT = 0.05
-# SL/TP scaled 5x from 0.01-lot baseline to keep the same price-distance safety net.
-# At 0.05 lot: $150 SL = $30 gold move (same catastrophic backstop), typical 1h drift
-# worth $15-50 vs the previous $3-10 at 0.01 lot.
-HARD_STOP_USD = 150.0     # catastrophic SL — same price distance, 5x bigger $ (matches 5x lot)
-HARD_TP_USD = 600.0       # catches rare moonshots; 99.7% of trades exit by time anyway
-MAX_DAILY_LOSS_USD = 50.0
-MAX_PORTFOLIO_DAILY_LOSS_USD = 80.0
+MAX_LOT = 0.01
+# Minimum-lot fallback. Scaling is owned by the closed-profit evidence artifact and
+# supplemental context can only reduce its ceiling.
+HARD_STOP_USD = 30.0
+HARD_TP_USD = 120.0
+MAX_DAILY_LOSS_USD = 20.0
+MAX_PORTFOLIO_DAILY_LOSS_USD = 20.0
+MAX_STOP_RISK_EQUITY_FRACTION = 0.02
 LOOKBACK = 60
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
 STRUCTURAL_MAGICS = set(range(88001, 88010))
@@ -254,6 +254,23 @@ def live_enter(force: bool = False) -> None:
         return
     if not live:
         append_event({**base_event, "event": "paper_enter", "reason": f"env {LIVE_ENV_FLAG} not set — paper only"})
+        return
+
+    account = mt5.account_info()
+    if account is None or float(account.equity) <= 0:
+        append_event({**base_event, "event": "skip_enter", "reason": "account equity unavailable"})
+        return
+    risk_budget = float(account.equity) * MAX_STOP_RISK_EQUITY_FRACTION
+    if HARD_STOP_USD > risk_budget:
+        append_event({
+            **base_event,
+            "event": "skip_enter",
+            "reason": (
+                f"hard stop ${HARD_STOP_USD:.2f} exceeds "
+                f"{MAX_STOP_RISK_EQUITY_FRACTION:.0%} equity budget ${risk_budget:.2f}"
+            ),
+            "account_equity": float(account.equity),
+        })
         return
 
     # All gates green. Build the order.

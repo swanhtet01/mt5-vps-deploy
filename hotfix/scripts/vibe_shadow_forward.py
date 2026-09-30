@@ -28,6 +28,7 @@ from mt5_agent.vibe_shadow import (  # noqa: E402
     load_state,
     load_vibe_artifacts,
     merge_experiment_catalog,
+    paper_forward_enrollments,
     paper_trade_result,
     register_screen_trials,
 )
@@ -416,16 +417,38 @@ def run_once(
         ledger = FDRLedger(ledger_file)
         try:
             artifacts = load_vibe_artifacts(sidecar_root)
-            register_screen_trials(artifacts, ledger)
+            discoveries = register_screen_trials(artifacts, ledger)
+            enrollments = paper_forward_enrollments(
+                artifacts.experiments,
+                discoveries,
+            )
             state["experiment_catalog"] = merge_experiment_catalog(
                 list(state.get("experiment_catalog") or []),
-                artifacts.experiments,
+                enrollments,
             )
+            discoveries = {
+                item["experiment_key"]: ledger.is_discovery(
+                    FDR_FAMILY,
+                    item["experiment_key"],
+                )
+                for item in state["experiment_catalog"]
+                if isinstance(item, dict)
+                and isinstance(item.get("experiment_key"), str)
+            }
             state["active_screen_sha256"] = artifacts.screen_sha256
             artifact_status = "PASS"
+            actions.append(
+                {
+                    "event": "shadow_enrollment_screened",
+                    "screened_count": len(artifacts.experiments),
+                    "enrolled_count": len(enrollments),
+                    "rejected_count": len(artifacts.experiments) - len(enrollments),
+                }
+            )
             entry_experiments = entry_eligible_experiments(
                 list(state["experiment_catalog"]),
                 list(state.get("closed_trades") or []),
+                discoveries,
             )
             _open_positions(
                 state,
@@ -457,6 +480,7 @@ def run_once(
             for item in entry_eligible_experiments(
                 catalog,
                 list(state.get("closed_trades") or []),
+                discoveries,
             )
         } if artifact_status == "PASS" else set()
         experiment_reports = forward_metrics(

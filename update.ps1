@@ -388,7 +388,7 @@ Write-Host '  [6d] hidden bounded log/export maintenance scheduled daily' -Foreg
 $vibeRunner = "$repo\scripts\run-vibe-research.ps1"
 $vibeSetup = "$repo\scripts\setup-vibe-research.ps1"
 $vibePython = 'C:\mt5-vibe-research\.venv\Scripts\python.exe'
-$auditedVibeCommit = '652917e74e2b2e1f767ef596623bae7f098a53c4'
+$auditedVibeCommit = 'cc54832cb50de29d14bb10097b18e08f0a843650'
 $vibeInstallPath = 'C:\mt5-vibe-research\install.json'
 if ((Test-Path $vibeRunner) -and (Test-Path $vibeSetup)) {
     $vibeInstall = if (Test-Path $vibeInstallPath) {

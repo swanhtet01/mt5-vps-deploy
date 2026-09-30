@@ -19,8 +19,8 @@ from mt5_agent.trade_history import ClosedTrade
 
 
 AUDITED_VIBE_REPOSITORY = "https://github.com/HKUDS/Vibe-Trading"
-AUDITED_VIBE_COMMIT = "652917e74e2b2e1f767ef596623bae7f098a53c4"
-AUDITED_VIBE_VERSION = "0.1.13"
+AUDITED_VIBE_COMMIT = "cc54832cb50de29d14bb10097b18e08f0a843650"
+AUDITED_VIBE_VERSION = "0.1.15"
 BUNDLE_SCHEMA = "mt5.vibe_research_bundle.v1"
 
 

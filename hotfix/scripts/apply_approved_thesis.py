@@ -6,9 +6,8 @@ Runs daily after thesis_ingest.py. Reads the LLM-generated thesis and applies
 its suggested_multiplier to context_score.json (the sizing signal picked up by
 all live scripts at entry time).
 
-Multiplier range: 0.50x (defensive) to 2.0x (confident/upsized).
+Multiplier range: 0.50x (defensive) to 1.0x (no change).
   - 1.0x = trade at the scaled base lot (default)
-  - 2.0x = double position on high-conviction days
   - 0.5x = half position on risk-off or uncertain days
 
 If thesis generation failed, falls back safely to 1.0x (full base size).
@@ -34,15 +33,8 @@ def main() -> int:
         suggested_mult = thesis.get("suggested_multiplier", 1.0)
         confidence = float(thesis.get("confidence", 0.5))
 
-        # Clamp: 0.5x floor prevents extreme shrinkage; 2.0x cap caps upside risk.
-        # High-confidence thesis (>0.70) is allowed the full upside range.
-        # Low-confidence thesis (<0.45) is capped at 1.0x (don't upsize on uncertainty).
-        if confidence < 0.45:
-            upper = 1.0
-        elif confidence < 0.65:
-            upper = 1.5
-        else:
-            upper = 2.0
+        # Language-model context may reduce deterministic risk, never increase it.
+        upper = 1.0
         mult = max(0.5, min(upper, float(suggested_mult)))
 
         context = read_json(DATA_CACHE / "context_score.json") or {}

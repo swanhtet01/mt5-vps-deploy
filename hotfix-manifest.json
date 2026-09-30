@@ -1,10 +1,10 @@
-﻿{
+{
     "schema_version":  1,
     "files":  [
                   {
                       "source":  "vps_health.py",
                       "destination":  "scripts/vps_health.py",
-                      "sha256":  "43594d05c56c59a3ed3aace32655cf658168b2eff0d4df7331102695dcb1ad1c"
+                      "sha256":  "237514e8735d017e2129c79b12d8c81a91fdcc2726eef1d9af1b029e50c25b44"
                   },
                   {
                       "source":  "hotfix/scripts/paths.py",
@@ -14,7 +14,7 @@
                   {
                       "source":  "killswitch_monitor.py",
                       "destination":  "scripts/killswitch_monitor.py",
-                      "sha256":  "c80278dc243f4e54b7de178f3ac9111ae93b22a80bd268457fad17dc718eed7d"
+                      "sha256":  "e73b28c4503a0580dc5c682efcd7e5b51a42e37dfb7ea0a62d6a2fdae834b402"
                   },
                   {
                       "source":  "heartbeat.py",
@@ -29,22 +29,22 @@
                   {
                       "source":  "hotfix/scripts/gold_drift_live.py",
                       "destination":  "scripts/gold_drift_live.py",
-                      "sha256":  "1a218e7470095ec234d460f2407eeb19b193b68fc24e34e94f0a47e8be6cbd2e"
+                      "sha256":  "abd885a7ab73682fd6f348ec91268c0bcd88043de804dd55e4b14c35d9f18087"
                   },
                   {
                       "source":  "hotfix/scripts/multi_drift_live.py",
                       "destination":  "scripts/multi_drift_live.py",
-                      "sha256":  "ccc233945046eae45b5c2ee020f1e37faff061c74a2ec3057ceeb5ce477935b9"
+                      "sha256":  "be7431e1a734917a29d17cf446df14454393aeb3f8f5470a335be09c7d383b08"
                   },
                   {
                       "source":  "hotfix/scripts/apply_approved_thesis.py",
                       "destination":  "scripts/apply_approved_thesis.py",
-                      "sha256":  "7863ff998326e3e624f13ad7ed75e157055cc2ec46275a76aafdb984d227da81"
+                      "sha256":  "5f7f4ea13b13bdcd9e70ed56cdd36a926c8083429470c52e7738d5d773896268"
                   },
                   {
                       "source":  "hotfix/scripts/intraday_mean_rev.py",
                       "destination":  "scripts/intraday_mean_rev.py",
-                      "sha256":  "6d04fbbc29bd4c306f414425c7742f3db5c0db6ba56dd019ac9197957b22f006"
+                      "sha256":  "c3e5b4f9feefcf4500b2a1e8a75929f09852f16ded0e24bb6bb4ee6b0e0316f0"
                   },
                   {
                       "source":  "hotfix/scripts/structural_scheduler.py",
@@ -69,7 +69,7 @@
                   {
                       "source":  "hotfix/scripts/setup-vibe-research.ps1",
                       "destination":  "scripts/setup-vibe-research.ps1",
-                      "sha256":  "0366f5b48387776dc27125eb9b3b183a4ec2188d6eb267c5e48bc59b529c1f65"
+                      "sha256":  "aefde27faf7269153a4487b748a7fcf1429838d99816feb2ecd64bb42e07a92b"
                   },
                   {
                       "source":  "hotfix/scripts/set-vibe-provider-secret.ps1",
@@ -79,7 +79,7 @@
                   {
                       "source":  "hotfix/scripts/run-vibe-research.ps1",
                       "destination":  "scripts/run-vibe-research.ps1",
-                      "sha256":  "33e5d6b5279cb5c9f335dadc62ba32b6f162ae4ca2d11b84f5b2aa7a5fa2824a"
+                      "sha256":  "49c004ab15877144ca006ec0696247e3f9ab0435c3e8ccdc0e840d3f4785a588"
                   },
                   {
                       "source":  "hotfix/scripts/vibe_research_entry.py",
@@ -104,12 +104,12 @@
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_bridge.py",
                       "destination":  "src/mt5_agent/vibe_bridge.py",
-                      "sha256":  "a86b4989b28305542cd4c424401003ca54f38d8f3be22f3dc0ea6a13024b91a9"
+                      "sha256":  "64e1c17af33717f815cf0dfe4afc06ee5fb3605b93a4ab6ff1f14a73e8d640f1"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_handoff.py",
                       "destination":  "src/mt5_agent/vibe_handoff.py",
-                      "sha256":  "5df29c1f6a6de3780c434bd0fe9cca0161408326cde9a538cc771f2ef8d03d7e"
+                      "sha256":  "780fcc5c57a69a037d37d106df5cd64aa1f7d403dd683e44a58fce9c38f650e2"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/edge_registry.py",
@@ -129,7 +129,7 @@
                   {
                       "source":  "hotfix/config.research-multi-asset-h1.toml",
                       "destination":  "config.research-multi-asset-h1.toml",
-                      "sha256":  "213e5483c89a2072e0a23ae334f537a1eb643b4cc66d7b4c4035c7802678b719"
+                      "sha256":  "8f20f79be06e3f36b3cbdb3ba5693318ce8e93f7a126c8a0103804ba077b76b7"
                   },
                   {
                       "source":  "hotfix/scripts/vibe_candidate_screen.py",
@@ -149,7 +149,7 @@
                   {
                       "source":  "hotfix/scripts/vibe_shadow_forward.py",
                       "destination":  "scripts/vibe_shadow_forward.py",
-                      "sha256":  "dcc4eac686a5559282bc3206de5822c103f39dfbd71326e2b9fc08d972572225"
+                      "sha256":  "a713f60043562a7fd66a38bedc94abd0707eb3b4afe3cdf47ac743d8f5467b7c"
                   },
                   {
                       "source":  "hotfix/scripts/run-vibe-shadow-once.ps1",
@@ -169,7 +169,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_shadow.py",
                       "destination":  "src/mt5_agent/vibe_shadow.py",
-                      "sha256":  "7a0127b5a62c358054b6c48e19388e5dd67fc2a76996ce9ca4bff416480fa25f"
+                      "sha256":  "fb88efce9f8aac6cc02385c3dc94c2bac994afa765a137c27c027902c3a24604"
                   },
                   {
                       "source":  "notify.py",
@@ -204,7 +204,7 @@
                   {
                       "source":  "hotfix/scripts/perf_report.py",
                       "destination":  "scripts/perf_report.py",
-                      "sha256":  "53d4136dcf283f321aa2cb83146670ab89a53033bca8f6db24133fc9d43de5f6"
+                      "sha256":  "f23465003498831a9b8c8f8bb5e7d473e8feaa8f8e2eb3f1dfd676945fa588c4"
                   },
                   {
                       "source":  "hotfix/scripts/position_monitor.py",

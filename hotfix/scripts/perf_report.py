@@ -30,7 +30,9 @@ from mt5_agent.mt5_execution import (
 
 CLAUDE_MAGICS = {88001: "GOLD_DRIFT", 88002: "USDJPY_MON", 88003: "UK100_THU",
                  88004: "GOLD_FRI", 88005: "USDJPY_WED", 88006: "GOLD_THU",
-                 88007: "AUDJPY_MON", 88008: "GBPJPY_THU"}
+                 88007: "AUDJPY_MON", 88008: "GBPJPY_THU",
+                 88011: "GOLD_MR", 88012: "USDJPY_MR",
+                 88013: "EURUSD_MR", 88014: "GBPUSD_MR"}
 REFERENCE_SYMBOLS = ("BTCUSD", "GOLD", "USDJPY")
 CODEX_MAGIC_MIN = 26_060_000
 CODEX_MAGIC_MAX = 26_069_999

@@ -14,6 +14,8 @@ symbols = [
   "OILCash",
   "EURUSD",
   "USDJPY",
+  "BTCUSD",
+  "ETHUSD",
 ]
 
 [risk]
@@ -41,6 +43,8 @@ allowed_symbols = [
   "OILCash",
   "EURUSD",
   "USDJPY",
+  "BTCUSD",
+  "ETHUSD",
 ]
 max_orders_per_run = 1
 max_positions_per_symbol = 1
@@ -93,6 +97,18 @@ downsize_to_max_order_volume = true
 max_spread_points = 90
 min_atr_points = 60
 max_order_volume = 0.01
+downsize_to_max_order_volume = true
+
+[symbol_risk.BTCUSD]
+max_spread_points = 1000
+min_atr_points = 5000
+max_order_volume = 0.01
+downsize_to_max_order_volume = true
+
+[symbol_risk.ETHUSD]
+max_spread_points = 200
+min_atr_points = 200
+max_order_volume = 0.02
 downsize_to_max_order_volume = true
 
 [strategy]

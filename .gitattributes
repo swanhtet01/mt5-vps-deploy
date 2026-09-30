@@ -1,0 +1,8 @@
+# Hotfix hashes are verified byte-for-byte on Windows and Linux.
+*.py text eol=lf
+*.ps1 text eol=lf
+*.toml text eol=lf
+*.txt text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
