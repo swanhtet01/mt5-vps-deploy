@@ -59,6 +59,10 @@ VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION = 0.25
 STRUCTURAL_RESEARCH_STATE = DATA_CACHE / "structural_walk_forward_state.json"
 STRUCTURAL_RESEARCH_MAX_AGE_HOURS = 8.0 * 24.0
+STRUCTURAL_CANONICAL_SYMBOLS = frozenset({
+    "GOLD", "SILVER", "OILCash", "BTCUSD", "ETHUSD", "US500Cash", "USDJPY",
+    "UK100Cash", "AUDJPY", "GBPJPY", "EURUSD", "GBPUSD", "GER40Cash", "JP225Cash",
+})
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
 EDGE_REGISTRY_FILE = DATA_CACHE / "edge_registry.json"
 DEPLOY_ROOT = Path(r"C:\mt5-deploy")
@@ -412,6 +416,21 @@ def check_structural_research(now: datetime | None = None) -> dict:
             blockers.append("structural research report hash is missing or invalid")
         elif _file_sha256(output) != report_sha256:
             blockers.append("structural research report hash mismatch")
+        else:
+            report = read_json(output, default={})
+            scope = report.get("research_scope") if isinstance(report, dict) else None
+            scope_symbols = scope.get("symbols") if isinstance(scope, dict) else None
+            if (
+                report.get("mode") != "read_only_research"
+                or report.get("orders_sent") != 0
+                or not isinstance(scope_symbols, list)
+                or len(scope_symbols) != len(STRUCTURAL_CANONICAL_SYMBOLS)
+                or set(scope_symbols) != STRUCTURAL_CANONICAL_SYMBOLS
+                or scope.get("canonical_full_universe") is not True
+                or scope.get("paper_eligibility_allowed") is not True
+                or scope.get("fdr_family") != "structural_hourweekday"
+            ):
+                blockers.append("structural research report is not a canonical no-order full-universe scan")
     if blockers:
         result.update(status="WARN", reason="; ".join(blockers), blockers=blockers)
     return result
