@@ -504,6 +504,8 @@ def load_vibe_artifacts(
                 "spec_fingerprint": fingerprint,
                 "symbol": result["broker_symbol"],
                 "source_symbol": candidate["source_symbols"][0],
+                "confirmation_symbol": candidate["broker_symbols"][1] if len(candidate["broker_symbols"]) == 2 else None,
+                "confirmation_source_symbol": candidate["source_symbols"][1] if len(candidate["source_symbols"]) == 2 else None,
                 "timeframe": "H1",
                 "family": family,
                 "direction": direction,

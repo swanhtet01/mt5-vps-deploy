@@ -19,7 +19,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "src"))
 sys.path.insert(0, str(PROJECT_ROOT / "scripts"))
 from mt5_agent.fdr_ledger import FDRLedger  # noqa: E402
 from mt5_agent.mt5_execution import FeedClockProvenance, feed_clock_provenance, normalize_volume  # noqa: E402
-from mt5_agent.vibe_rules import prepare_frame, rule_exit, signal  # noqa: E402
+from mt5_agent.vibe_rules import cross_market_signal, prepare_frame, rule_exit, signal  # noqa: E402
 from mt5_agent.vibe_shadow import (  # noqa: E402
     FDR_FAMILY,
     build_report,
@@ -328,7 +328,25 @@ def _open_positions(
         if signal_epoch != expected_signal_epoch:
             continue
         direction_value = 1 if experiment["direction"] == "long" else -1
-        if not signal(signal_row, str(experiment["family"]), direction_value):
+        confirmation_symbol = experiment.get("confirmation_symbol")
+        confirmation_row = None
+        if confirmation_symbol:
+            confirmation_symbol = str(confirmation_symbol)
+            if confirmation_symbol not in frames:
+                frames[confirmation_symbol] = _rates_frame(confirmation_symbol)
+            confirmation_frame = frames[confirmation_symbol]
+            if confirmation_frame is None or confirmation_frame.empty:
+                continue
+            target = pd.to_datetime(signal_epoch, unit="s", utc=True)
+            if target not in confirmation_frame.index:
+                continue
+            confirmation_row = confirmation_frame.loc[target]
+        eligible = (
+            cross_market_signal(signal_row, confirmation_row, direction_value)
+            if str(experiment["family"]) == "cross_market_confirmation" and confirmation_row is not None
+            else signal(signal_row, str(experiment["family"]), direction_value)
+        )
+        if not eligible:
             continue
         signal_key = f"{experiment['spec_fingerprint']}:{signal_epoch}"
         if signal_key in attempted:

@@ -10,6 +10,7 @@ RULES = {
     "breakout": {"maximum_hold_bars": 8, "stop_atr": 1.25},
     "range_reversion": {"maximum_hold_bars": 10, "stop_atr": 1.25},
     "volatility_regime": {"maximum_hold_bars": 6, "stop_atr": 1.0},
+    "cross_market_confirmation": {"maximum_hold_bars": 12, "stop_atr": 1.5},
 }
 
 
@@ -101,9 +102,40 @@ def signal(row: pd.Series, family: str, direction: int) -> bool:
     return False
 
 
+def cross_market_signal(primary: pd.Series, confirmation: pd.Series, direction: int) -> bool:
+    """Require independently calculated H1 trend agreement on an exact shared bar."""
+    values = [
+        primary.get("close"), primary.get("atr14"), primary.get("ema20"), primary.get("ema100"),
+        primary.get("momentum24"), primary.get("realized_vol24"), primary.get("median_vol500"),
+        confirmation.get("ema20"), confirmation.get("ema100"), confirmation.get("momentum24"),
+    ]
+    if any(pd.isna(value) for value in values) or primary["median_vol500"] <= 0:
+        return False
+    primary_trend = (
+        primary["ema20"] > primary["ema100"] and primary["momentum24"] > 0
+        if direction > 0
+        else primary["ema20"] < primary["ema100"] and primary["momentum24"] < 0
+    )
+    confirmation_trend = (
+        confirmation["ema20"] > confirmation["ema100"] and confirmation["momentum24"] > 0
+        if direction > 0
+        else confirmation["ema20"] < confirmation["ema100"] and confirmation["momentum24"] < 0
+    )
+    return bool(
+        primary["realized_vol24"] / primary["median_vol500"] < 1.5
+        and primary_trend
+        and confirmation_trend
+    )
+
+
 def rule_exit(row: pd.Series, family: str, direction: int) -> bool:
     """Return whether the latest completed bar closes an open experiment."""
     if family == "trend_following":
+        return bool(
+            (direction > 0 and row["ema20"] <= row["ema100"])
+            or (direction < 0 and row["ema20"] >= row["ema100"])
+        )
+    if family == "cross_market_confirmation":
         return bool(
             (direction > 0 and row["ema20"] <= row["ema100"])
             or (direction < 0 and row["ema20"] >= row["ema100"])
