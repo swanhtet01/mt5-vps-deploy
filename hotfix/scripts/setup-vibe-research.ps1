@@ -97,14 +97,16 @@ WScript.Quit result
         return "wscript.exe `"$TaskVbs`""
     }
 
+    # Run unattended research under SYSTEM.  The provider secret, if later configured,
+    # is user-DPAPI protected, so scheduled jobs deliberately remain deterministic-only.
     $BaselineBody = "& '$Runner' -SidecarRoot '$SidecarRoot' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 30 -SkipAgent *>> 'C:\mt5-paper\analytics\vibe-baseline.log'`r`nexit `$LASTEXITCODE"
     $BaselineAction = New-VibeTaskLauncher -Name "vibe-baseline" -Body $BaselineBody
-    schtasks /create /tn 'MT5-VibeBaseline' /tr $BaselineAction /sc daily /st 04:00 /it /f | Out-Null
+    schtasks /create /tn 'MT5-VibeBaseline' /tr $BaselineAction /sc daily /st 04:00 /ru SYSTEM /f | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "MT5-VibeBaseline task registration failed" }
 
-    $ResearchBody = "& '$Runner' -SidecarRoot '$SidecarRoot' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 60 *>> 'C:\mt5-paper\analytics\vibe-research.log'`r`nexit `$LASTEXITCODE"
+    $ResearchBody = "& '$Runner' -SidecarRoot '$SidecarRoot' -Config 'config.research-multi-asset-h1.toml' -TimeoutMinutes 60 -SkipAgent *>> 'C:\mt5-paper\analytics\vibe-research.log'`r`nexit `$LASTEXITCODE"
     $ResearchAction = New-VibeTaskLauncher -Name "vibe-research" -Body $ResearchBody
-    schtasks /create /tn 'MT5-VibeResearch' /tr $ResearchAction /sc weekly /d SUN /st 15:30 /it /f | Out-Null
+    schtasks /create /tn 'MT5-VibeResearch' /tr $ResearchAction /sc weekly /d SUN /st 15:30 /ru SYSTEM /f | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "MT5-VibeResearch task registration failed" }
 
     try {
@@ -123,5 +125,5 @@ WScript.Quit result
     }
     & $ShadowRegister -IntervalMinutes 5 -SidecarRoot $SidecarRoot -StartNow
     if ($LASTEXITCODE -ne 0) { throw "MT5-VibeShadow task registration failed" }
-    Write-Host "Registered hidden daily baseline, weekly research, and five-minute quote-only shadow tasks."
+    Write-Host "Registered SYSTEM-background daily baseline, weekly deterministic research, and five-minute quote-only shadow tasks."
 }
