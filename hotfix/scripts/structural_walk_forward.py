@@ -11,11 +11,20 @@ import json
 import math
 import time
 import sys
+import types
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 
 import MetaTrader5 as mt5
+
+# hotfix/src/mt5_agent is intentionally a namespace package. Bind it explicitly so an
+# unrelated editable installation cannot supply a different validation/FDR implementation.
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_AGENT_ROOT = PROJECT_ROOT / "src" / "mt5_agent"
+_agent_package = types.ModuleType("mt5_agent")
+_agent_package.__path__ = [str(_AGENT_ROOT)]
+sys.modules["mt5_agent"] = _agent_package
 
 from mt5_agent.fdr_ledger import FDRLedger, benjamini_hochberg
 from mt5_agent.mt5_execution import feed_clock_provenance
