@@ -287,8 +287,12 @@ def test_structural_research_health_rejects_missing_universe_fingerprint(monkeyp
 
 
 def test_structural_paper_challenger_health_reports_zero_without_warning(monkeypatch, tmp_path: Path):
-    state = tmp_path / "structural_walk_forward_state.json"
-    report = tmp_path / "report.json"
+    data_cache = tmp_path / "data_cache"
+    reports = tmp_path / "reports"
+    data_cache.mkdir()
+    reports.mkdir()
+    state = data_cache / "structural_walk_forward_state.json"
+    report = reports / "report.json"
     report.write_text(json.dumps({
         "mode": "read_only_research", "orders_sent": 0,
         "research_scope": {"symbols": sorted(vps_health.STRUCTURAL_CANONICAL_SYMBOLS),
