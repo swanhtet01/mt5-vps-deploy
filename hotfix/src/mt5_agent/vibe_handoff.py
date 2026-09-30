@@ -159,6 +159,12 @@ def _validate_candidate(
     unknown = sorted(set(source_symbols) - allowed_symbols)
     if unknown:
         raise ValueError(f"{label}.source_symbols are outside the bundle: {unknown}")
+    expected_source_count = 2 if candidate["family"] == "cross_market_confirmation" else 1
+    if len(source_symbols) != expected_source_count:
+        raise ValueError(
+            f"{label}.source_symbols must contain exactly {expected_source_count} source(s) "
+            f"for {candidate['family']}"
+        )
 
     broker_symbols = candidate["broker_symbols"]
     expected_brokers = [broker_by_source[item] for item in source_symbols]
