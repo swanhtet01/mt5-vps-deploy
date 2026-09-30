@@ -1,9 +1,8 @@
 """Cost-aware historical rejection screen for deterministic Vibe hypotheses.
 
 This process imports no broker API, cannot place orders, and cannot promote a
-candidate. Because the hypotheses were selected from the latest sample, a PASS
-only means "not rejected by this historical screen"; paper-forward validation
-must establish any usable evidence after discovery.
+candidate. A PASS only means "not rejected by this historical screen";
+paper-forward validation must establish any usable evidence after discovery.
 """
 from __future__ import annotations
 
@@ -61,6 +60,7 @@ PBO_PARTITIONS = 8
 MINIMUM_PBO_DAYS = 64
 MINIMUM_PBO_STRATEGIES = 4
 MAXIMUM_PBO = 0.20
+MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 
 def _finite(value: Any, digits: int = 6) -> float | None:
     try:
@@ -81,6 +81,15 @@ def _contract_values(instrument: Mapping[str, Any], candidate: Mapping[str, Any]
     if declared_lot is None or not math.isclose(float(declared_lot), minimum_lot, rel_tol=1e-9, abs_tol=1e-12):
         raise ValueError("candidate minimum-lot cost reference does not match instrument snapshot")
     return tick_size, tick_value, minimum_lot, float(cost)
+
+
+def _account_equity_usd(account_snapshot: Mapping[str, Any]) -> float:
+    if account_snapshot.get("currency") != "USD":
+        raise ValueError("minimum-lot stop-risk gate requires a USD account snapshot")
+    equity = float(account_snapshot.get("equity") or 0)
+    if not math.isfinite(equity) or equity <= 0:
+        raise ValueError("minimum-lot stop-risk gate requires positive captured equity")
+    return equity
 
 
 def simulate_candidate(
@@ -113,6 +122,7 @@ def simulate_candidate(
             signal_index += 1
             continue
         stop_price = entry_price - direction_value * stop_atr * atr
+        stop_risk = abs(entry_price - stop_price) / tick_size * tick_value * minimum_lot + cost
         last_exit_index = min(entry_index + maximum_hold - 1, len(data) - 1)
         exit_index = last_exit_index
         exit_price = float(data.iloc[last_exit_index]["close"])
@@ -149,6 +159,7 @@ def simulate_candidate(
                 "gross_usd": float(gross),
                 "cost_usd": cost,
                 "net_usd": float(gross - cost),
+                "initial_stop_risk_usd": float(stop_risk),
                 "exit_reason": exit_reason,
             }
         )
@@ -387,6 +398,7 @@ def grade_direction(
     candidate: Mapping[str, Any],
     direction: str,
     instrument: Mapping[str, Any],
+    account_snapshot: Mapping[str, Any],
 ) -> dict[str, Any]:
     family = str(candidate["family"])
     screen_id = f"{candidate['candidate_id']}-{direction.upper()}"
@@ -410,6 +422,7 @@ def grade_direction(
     purge_bars = int(rules["maximum_hold_bars"]) + 1
     folds = _fold_ranges(len(frame), purge_bars)
     try:
+        account_equity = _account_equity_usd(account_snapshot)
         trades = simulate_candidate(
             frame,
             family=family,
@@ -447,6 +460,10 @@ def grade_direction(
         fold_reports.append({**fold, **_metrics(values)})
 
     metrics = _metrics(pooled)
+    stop_risks = [float(trade["initial_stop_risk_usd"]) for trade in pooled_trades]
+    maximum_stop_risk = max(stop_risks) if stop_risks else None
+    stop_risk_p95 = float(np.quantile(stop_risks, 0.95)) if stop_risks else None
+    risk_budget = account_equity * MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
     profitable_folds = sum(report["net_usd"] > 0 for report in fold_reports)
     profitable_ratio = profitable_folds / len(fold_reports) if fold_reports else 0.0
     bootstrap_lcb = block_bootstrap_mean_lcb(
@@ -473,6 +490,13 @@ def grade_direction(
         )
     if bootstrap_lcb is None or bootstrap_lcb <= 0:
         reasons.append("95% block-bootstrap lower bound for mean net P/L is not positive")
+    if maximum_stop_risk is None:
+        reasons.append("minimum-lot initial stop risk is unavailable")
+    elif maximum_stop_risk > risk_budget:
+        reasons.append(
+            f"minimum-lot maximum initial stop risk ${maximum_stop_risk:.2f} exceeds "
+            f"{MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION:.0%} equity budget ${risk_budget:.2f}"
+        )
     daily_pnl: dict[str, float] = defaultdict(float)
     for trade in pooled_trades:
         daily_pnl[str(trade["exit_time"])[:10]] += float(trade["net_usd"])
@@ -497,6 +521,20 @@ def grade_direction(
             "stressed_round_trip_usd": candidate["cost_stress"]["estimated_cost_usd_min_lot"],
             "valuation": "current instrument tick-value snapshot; not historical tick-value evidence",
         },
+        "minimum_lot_stop_risk": {
+            "account_currency": "USD",
+            "captured_equity_usd": _finite(account_equity, 2),
+            "maximum_risk_fraction": MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION,
+            "risk_budget_usd": _finite(risk_budget, 2),
+            "maximum_initial_stop_risk_usd": _finite(maximum_stop_risk, 6),
+            "p95_initial_stop_risk_usd": _finite(stop_risk_p95, 6),
+            "maximum_initial_stop_risk_fraction": _finite(
+                maximum_stop_risk / account_equity if maximum_stop_risk is not None else None,
+                8,
+            ),
+            "pass": maximum_stop_risk is not None and maximum_stop_risk <= risk_budget,
+            "basis": "minimum lot, ATR initial stop, stressed round-trip cost, captured equity",
+        },
         "all_simulated_trades": len(trades),
         "folds": fold_reports,
         "oos": {
@@ -515,6 +553,7 @@ def screen_candidates(
     frames: Mapping[str, pd.DataFrame],
     handoff: Mapping[str, Any],
     instruments: Mapping[str, Mapping[str, Any]],
+    account_snapshot: Mapping[str, Any],
     generated_at: datetime,
     manifest_sha256: str,
     handoff_sha256: str,
@@ -531,6 +570,7 @@ def screen_candidates(
                     candidate=candidate,
                     direction=direction,
                     instrument=instruments.get(broker_symbol, {}),
+                    account_snapshot=account_snapshot,
                 )
             )
 
@@ -626,6 +666,8 @@ def screen_candidates(
             "deflated_sharpe_required": True,
             "minimum_deflated_sharpe_probability": MINIMUM_DEFLATED_SHARPE_PROBABILITY,
             "pbo_cscv_required": True,
+            "minimum_lot_stop_risk_required": True,
+            "maximum_minimum_lot_stop_risk_fraction": MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION,
             "maximum_probability_backtest_overfitting": MAXIMUM_PBO,
         },
         "family_trials": family_trials,
@@ -712,6 +754,9 @@ def main() -> int:
         frames=frames,
         handoff=handoff,
         instruments=_instrument_map(bundle),
+        account_snapshot=json.loads(
+            (bundle / "account_snapshot.redacted.json").read_text(encoding="utf-8-sig")
+        ),
         generated_at=datetime.now(tz=timezone.utc),
         manifest_sha256=manifest_sha256,
         handoff_sha256=file_sha256(handoff_path),

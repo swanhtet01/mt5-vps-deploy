@@ -36,6 +36,7 @@ BOOTSTRAP_SAMPLES = 3000
 BOOTSTRAP_BLOCK_TRADES = 4
 MINIMUM_HISTORICAL_DSR_PROBABILITY = 0.95
 MAXIMUM_HISTORICAL_PBO = 0.20
+MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 PAPER_FORWARD_ENROLLMENT_GATE = "historical_screen_pass_and_cumulative_bh_fdr"
 
 
@@ -291,6 +292,18 @@ def load_vibe_artifacts(
         raise ValueError("candidate screen result count is invalid")
     if {result.get("screen_id") for result in results if isinstance(result, dict)} != expected_ids:
         raise ValueError("candidate screen identities do not exactly match the handoff")
+    method = screen.get("method")
+    if (
+        not isinstance(method, dict)
+        or method.get("minimum_lot_stop_risk_required") is not True
+        or _number(
+            method.get("maximum_minimum_lot_stop_risk_fraction"),
+            "method.maximum_minimum_lot_stop_risk_fraction",
+            minimum=0,
+        )
+        != MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
+    ):
+        raise ValueError("candidate screen minimum-lot risk contract is invalid")
     selection_overfitting = screen.get("selection_overfitting")
     if not isinstance(selection_overfitting, dict):
         raise ValueError("candidate screen PBO report is missing")
@@ -405,6 +418,40 @@ def load_vibe_artifacts(
             raise ValueError("candidate screen pass bypasses a multiple-testing gate")
         if bool(multiple.get("family_pbo_pass")) != pbo_pass:
             raise ValueError("candidate screen PBO decision is inconsistent")
+        stop_risk = result.get("minimum_lot_stop_risk")
+        if not isinstance(stop_risk, dict):
+            raise ValueError("candidate screen minimum-lot stop risk is missing")
+        captured_equity = _number(
+            stop_risk.get("captured_equity_usd"),
+            "minimum_lot_stop_risk.captured_equity_usd",
+            minimum=0,
+        )
+        maximum_risk_fraction = _number(
+            stop_risk.get("maximum_risk_fraction"),
+            "minimum_lot_stop_risk.maximum_risk_fraction",
+            minimum=0,
+        )
+        measured_risk_fraction = stop_risk.get("maximum_initial_stop_risk_fraction")
+        measured_risk_fraction = (
+            None
+            if measured_risk_fraction is None
+            else _number(
+                measured_risk_fraction,
+                "minimum_lot_stop_risk.maximum_initial_stop_risk_fraction",
+                minimum=0,
+            )
+        )
+        risk_pass = bool(
+            stop_risk.get("account_currency") == "USD"
+            and captured_equity > 0
+            and maximum_risk_fraction == MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
+            and measured_risk_fraction is not None
+            and measured_risk_fraction <= maximum_risk_fraction
+        )
+        if stop_risk.get("pass") is not risk_pass:
+            raise ValueError("candidate screen minimum-lot stop risk is inconsistent")
+        if result["historical_screen_pass"] and not risk_pass:
+            raise ValueError("candidate screen pass bypasses the minimum-lot risk gate")
         lot = _number(candidate["cost_stress"].get("minimum_lot_reference"), "minimum lot", minimum=0)
         slippage = _number(
             candidate["cost_stress"].get("slippage_points_round_trip"),

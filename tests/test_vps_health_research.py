@@ -24,6 +24,8 @@ def _screen(
             "pbo_cscv_required": True,
             "minimum_deflated_sharpe_probability": 0.95,
             "maximum_probability_backtest_overfitting": 0.20,
+            "minimum_lot_stop_risk_required": True,
+            "maximum_minimum_lot_stop_risk_fraction": 0.02,
         },
         "selection_overfitting": {
             "method": "combinatorially_symmetric_cross_validation",
@@ -40,6 +42,12 @@ def _screen(
                     "minimum_deflated_sharpe_probability": 0.95,
                     "deflated_sharpe_probability": dsr,
                     "family_pbo_pass": family_pbo_pass,
+                },
+                "minimum_lot_stop_risk": {
+                    "account_currency": "USD",
+                    "maximum_risk_fraction": 0.02,
+                    "maximum_initial_stop_risk_fraction": 0.01,
+                    "pass": True,
                 },
             }
         ],
@@ -88,3 +96,20 @@ def test_malformed_pbo_artifact_is_health_failure():
     assert problems
     assert summary["statistical_gate_status"] == "INVALID"
     assert summary["research_family_decision"] == "INVALID_ARTIFACT"
+
+
+def test_candidate_pass_cannot_bypass_minimum_lot_risk():
+    screen = _screen(
+        pbo=0.10,
+        family_pbo_pass=True,
+        historical_pass=True,
+        dsr=0.99,
+    )
+    risk = screen["results"][0]["minimum_lot_stop_risk"]
+    risk["maximum_initial_stop_risk_fraction"] = 0.03
+    risk["pass"] = False
+
+    summary, problems = vps_health._vibe_screen_statistics(screen)
+
+    assert "Vibe candidate pass bypasses minimum-lot stop risk" in problems
+    assert summary["statistical_gate_status"] == "INVALID"

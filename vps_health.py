@@ -54,6 +54,7 @@ VIBE_SHADOW_REPORT = DATA_CACHE / "vibe_shadow_forward_report.json"
 VIBE_SHADOW_MAX_AGE_MINUTES = 20.0
 VIBE_MINIMUM_DSR_PROBABILITY = 0.95
 VIBE_MAXIMUM_PBO = 0.20
+VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
 VIBE_DENIED_TOOL_FRAGMENTS = (
     "order", "trading_", "connector", "mandate", "bash", "shell", "write", "background",
@@ -390,6 +391,9 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
         or method.get("pbo_cscv_required") is not True
         or method.get("minimum_deflated_sharpe_probability") != VIBE_MINIMUM_DSR_PROBABILITY
         or method.get("maximum_probability_backtest_overfitting") != VIBE_MAXIMUM_PBO
+        or method.get("minimum_lot_stop_risk_required") is not True
+        or method.get("maximum_minimum_lot_stop_risk_fraction")
+        != VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
     ):
         problems.append("Vibe candidate screen statistical method contract is invalid")
     if not isinstance(selection, dict):
@@ -416,6 +420,7 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
     if not isinstance(results, list):
         problems.append("Vibe candidate screen results are missing")
         results = []
+    risk_fit_count = 0
     for item in results:
         multiple = item.get("multiple_testing") if isinstance(item, dict) else None
         if (
@@ -432,6 +437,27 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
             if not isinstance(dsr, (int, float)) or dsr < VIBE_MINIMUM_DSR_PROBABILITY or not pbo_pass:
                 problems.append("Vibe candidate pass bypasses DSR or PBO")
                 break
+        stop_risk = item.get("minimum_lot_stop_risk") if isinstance(item, dict) else None
+        measured_fraction = (
+            stop_risk.get("maximum_initial_stop_risk_fraction")
+            if isinstance(stop_risk, dict)
+            else None
+        )
+        risk_pass = bool(
+            isinstance(stop_risk, dict)
+            and stop_risk.get("account_currency") == "USD"
+            and stop_risk.get("maximum_risk_fraction")
+            == VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
+            and isinstance(measured_fraction, (int, float))
+            and 0 <= measured_fraction <= VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
+        )
+        if not isinstance(stop_risk, dict) or stop_risk.get("pass") is not risk_pass:
+            problems.append("Vibe candidate minimum-lot stop risk is invalid")
+            break
+        if item.get("historical_screen_pass") is True and not risk_pass:
+            problems.append("Vibe candidate pass bypasses minimum-lot stop risk")
+            break
+        risk_fit_count += int(risk_pass)
 
     if problems:
         decision = "INVALID_ARTIFACT"
@@ -449,6 +475,8 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
         pbo_maximum=VIBE_MAXIMUM_PBO,
         pbo_evaluated_splits=selection.get("evaluated_splits"),
         dsr_minimum=VIBE_MINIMUM_DSR_PROBABILITY,
+        minimum_lot_risk_maximum_fraction=VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION,
+        minimum_lot_risk_fit_count=risk_fit_count,
     )
     return summary, problems
 
