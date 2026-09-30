@@ -12,7 +12,9 @@ import json
 import math
 import os
 import sys
+from collections import defaultdict
 from datetime import datetime, timezone
+from itertools import combinations
 from pathlib import Path
 from statistics import NormalDist
 from typing import Any, Mapping
@@ -55,6 +57,10 @@ BOOTSTRAP_BLOCK_TRADES = 4
 FAMILY_ALPHA = 0.05
 MINIMUM_DEFLATED_SHARPE_PROBABILITY = 0.95
 EULER_MASCHERONI = 0.5772156649015329
+PBO_PARTITIONS = 8
+MINIMUM_PBO_DAYS = 64
+MINIMUM_PBO_STRATEGIES = 4
+MAXIMUM_PBO = 0.20
 
 def _finite(value: Any, digits: int = 6) -> float | None:
     try:
@@ -270,6 +276,111 @@ def deflated_sharpe_probability(
     return NormalDist().cdf(statistic)
 
 
+def _sharpe_score(values: np.ndarray) -> float | None:
+    if values.size < 2:
+        return None
+    standard_deviation = float(np.std(values, ddof=1))
+    if standard_deviation <= 0 or not math.isfinite(standard_deviation):
+        return None
+    score = float(np.mean(values) / standard_deviation)
+    return score if math.isfinite(score) else None
+
+
+def estimate_probability_backtest_overfitting(
+    daily_pnl_by_strategy: Mapping[str, Mapping[str, float]],
+) -> dict[str, Any]:
+    """Estimate family-level PBO using contiguous CSCV partitions."""
+    strategy_ids = sorted(daily_pnl_by_strategy)
+    dates = sorted(
+        {
+            day
+            for daily_pnl in daily_pnl_by_strategy.values()
+            for day in daily_pnl
+        }
+    )
+    base = {
+        "method": "combinatorially_symmetric_cross_validation",
+        "partitions": PBO_PARTITIONS,
+        "strategies": len(strategy_ids),
+        "daily_observations": len(dates),
+        "maximum_probability_backtest_overfitting": MAXIMUM_PBO,
+    }
+    if len(strategy_ids) < MINIMUM_PBO_STRATEGIES or len(dates) < MINIMUM_PBO_DAYS:
+        return {
+            **base,
+            "status": "INSUFFICIENT_DATA",
+            "evaluated_splits": 0,
+            "probability_backtest_overfitting": None,
+            "median_oos_rank_percentile": None,
+        }
+
+    matrix = np.asarray(
+        [
+            [float(daily_pnl_by_strategy[strategy_id].get(day, 0.0)) for day in dates]
+            for strategy_id in strategy_ids
+        ],
+        dtype="float64",
+    )
+    partitions = [
+        indices
+        for indices in np.array_split(np.arange(len(dates)), PBO_PARTITIONS)
+        if indices.size > 0
+    ]
+    if len(partitions) != PBO_PARTITIONS:
+        return {
+            **base,
+            "status": "INSUFFICIENT_DATA",
+            "evaluated_splits": 0,
+            "probability_backtest_overfitting": None,
+            "median_oos_rank_percentile": None,
+        }
+
+    rank_percentiles: list[float] = []
+    logits: list[float] = []
+    half = PBO_PARTITIONS // 2
+    partition_ids = range(PBO_PARTITIONS)
+    for train_partition_ids in combinations(partition_ids, half):
+        train_set = set(train_partition_ids)
+        test_partition_ids = [index for index in partition_ids if index not in train_set]
+        train_indices = np.concatenate([partitions[index] for index in train_partition_ids])
+        test_indices = np.concatenate([partitions[index] for index in test_partition_ids])
+        train_scores = [_sharpe_score(row[train_indices]) for row in matrix]
+        finite_train = [index for index, score in enumerate(train_scores) if score is not None]
+        if not finite_train:
+            continue
+        selected = max(finite_train, key=lambda index: (train_scores[index], -index))
+        test_scores = [_sharpe_score(row[test_indices]) for row in matrix]
+        selected_score = test_scores[selected]
+        finite_test = [float(score) for score in test_scores if score is not None]
+        if selected_score is None or len(finite_test) < 2:
+            continue
+        less = sum(score < selected_score for score in finite_test)
+        equal = sum(math.isclose(score, selected_score, rel_tol=1e-12, abs_tol=1e-12) for score in finite_test)
+        average_rank = less + (equal + 1.0) / 2.0
+        percentile = average_rank / (len(finite_test) + 1.0)
+        percentile = min(max(percentile, 1e-12), 1.0 - 1e-12)
+        rank_percentiles.append(percentile)
+        logits.append(math.log(percentile / (1.0 - percentile)))
+
+    if not rank_percentiles:
+        return {
+            **base,
+            "status": "INSUFFICIENT_DATA",
+            "evaluated_splits": 0,
+            "probability_backtest_overfitting": None,
+            "median_oos_rank_percentile": None,
+        }
+    probability = sum(value <= 0 for value in logits) / len(logits)
+    return {
+        **base,
+        "status": "AVAILABLE",
+        "evaluated_splits": len(rank_percentiles),
+        "probability_backtest_overfitting": _finite(probability, 12),
+        "median_oos_rank_percentile": _finite(float(np.median(rank_percentiles)), 12),
+        "median_logit": _finite(float(np.median(logits)), 12),
+    }
+
+
 def grade_direction(
     *,
     frame: pd.DataFrame,
@@ -291,6 +402,7 @@ def grade_direction(
             "reasons": ["fixed historical simulator does not support this rule family"],
             "folds": [],
             "oos": _metrics([]),
+            "_oos_daily_pnl": {},
             "paper_candidate": False,
             "live_eligible": False,
         }
@@ -317,11 +429,13 @@ def grade_direction(
             "reasons": [str(exc)],
             "folds": [],
             "oos": _metrics([]),
+            "_oos_daily_pnl": {},
             "paper_candidate": False,
             "live_eligible": False,
         }
     fold_reports: list[dict[str, Any]] = []
     pooled: list[float] = []
+    pooled_trades: list[dict[str, Any]] = []
     for fold in folds:
         selected = [
             trade for trade in trades
@@ -329,6 +443,7 @@ def grade_direction(
         ]
         values = [float(trade["net_usd"]) for trade in selected]
         pooled.extend(values)
+        pooled_trades.extend(selected)
         fold_reports.append({**fold, **_metrics(values)})
 
     metrics = _metrics(pooled)
@@ -358,6 +473,9 @@ def grade_direction(
         )
     if bootstrap_lcb is None or bootstrap_lcb <= 0:
         reasons.append("95% block-bootstrap lower bound for mean net P/L is not positive")
+    daily_pnl: dict[str, float] = defaultdict(float)
+    for trade in pooled_trades:
+        daily_pnl[str(trade["exit_time"])[:10]] += float(trade["net_usd"])
     return {
         "screen_id": screen_id,
         "parent_candidate_id": candidate["candidate_id"],
@@ -386,6 +504,7 @@ def grade_direction(
             "profitable_fold_ratio": _finite(profitable_ratio, 6),
             "bootstrap_mean_lcb_95_usd": _finite(bootstrap_lcb, 6),
         },
+        "_oos_daily_pnl": dict(sorted(daily_pnl.items())),
         "paper_candidate": False,
         "live_eligible": False,
     }
@@ -418,6 +537,17 @@ def screen_candidates(
     pvalues = [float(result["oos"]["one_sided_positive_p_normal_approx"]) for result in results]
     bh_mask = benjamini_hochberg(pvalues, q=FAMILY_ALPHA)
     family_trials = len(results)
+    daily_pnl_by_strategy = {
+        str(result["screen_id"]): result.pop("_oos_daily_pnl", {})
+        for result in results
+    }
+    pbo = estimate_probability_backtest_overfitting(daily_pnl_by_strategy)
+    pbo_probability = pbo.get("probability_backtest_overfitting")
+    survived_pbo = bool(
+        pbo.get("status") == "AVAILABLE"
+        and pbo_probability is not None
+        and float(pbo_probability) <= MAXIMUM_PBO
+    )
     sharpe_values = [
         float(result["oos"]["sharpe_per_trade"])
         for result in results
@@ -438,6 +568,7 @@ def screen_candidates(
             "deflated_sharpe_benchmark_per_trade": _finite(sharpe_benchmark, 12),
             "deflated_sharpe_probability": _finite(dsr_probability, 12),
             "minimum_deflated_sharpe_probability": MINIMUM_DEFLATED_SHARPE_PROBABILITY,
+            "family_pbo_pass": survived_pbo,
         }
         survived_pvalue_correction = bool(p_bonferroni < FAMILY_ALPHA and bh_reject)
         survived_sharpe_deflation = bool(
@@ -448,6 +579,7 @@ def screen_candidates(
             result["historical_screen_verdict"] == "PASS_BEFORE_MULTIPLE_TESTING"
             and survived_pvalue_correction
             and survived_sharpe_deflation
+            and survived_pbo
         )
         if passed:
             result["historical_screen_verdict"] = "PASS_NOT_REJECTED"
@@ -460,6 +592,10 @@ def screen_candidates(
             if not survived_sharpe_deflation:
                 result["reasons"].append(
                     "deflated Sharpe probability did not reach 95%"
+                )
+            if not survived_pbo:
+                result["reasons"].append(
+                    "strategy family did not pass the CSCV/PBO gate"
                 )
         result["historical_screen_pass"] = passed
 
@@ -489,8 +625,11 @@ def screen_candidates(
             "bonferroni_and_bh_fdr_required": True,
             "deflated_sharpe_required": True,
             "minimum_deflated_sharpe_probability": MINIMUM_DEFLATED_SHARPE_PROBABILITY,
+            "pbo_cscv_required": True,
+            "maximum_probability_backtest_overfitting": MAXIMUM_PBO,
         },
         "family_trials": family_trials,
+        "selection_overfitting": pbo,
         "historical_screen_pass_count": sum(result["historical_screen_pass"] for result in results),
         "paper_candidate_count": 0,
         "live_eligible_count": 0,
@@ -500,6 +639,7 @@ def screen_candidates(
             "The current terminal spread and tick-value snapshot is stressed but is not a historical cost series.",
             "Only post-discovery paper-forward outcomes can provide independent evidence; manual live authorization remains separate.",
             "Deflated Sharpe uses per-trade OOS returns and the raw family trial count; it is an additional rejection test, not proof of independence.",
+            "CSCV/PBO aligns realized OOS P/L by UTC exit day across the fixed family and fills no-trade days with zero; unavailable or high PBO fails closed.",
         ],
     }
 

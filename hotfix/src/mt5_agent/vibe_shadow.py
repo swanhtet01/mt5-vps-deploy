@@ -35,6 +35,7 @@ MAX_FORWARD_TRADES_PER_EXPERIMENT = 60
 BOOTSTRAP_SAMPLES = 3000
 BOOTSTRAP_BLOCK_TRADES = 4
 MINIMUM_HISTORICAL_DSR_PROBABILITY = 0.95
+MAXIMUM_HISTORICAL_PBO = 0.20
 PAPER_FORWARD_ENROLLMENT_GATE = "historical_screen_pass_and_cumulative_bh_fdr"
 
 
@@ -290,6 +291,34 @@ def load_vibe_artifacts(
         raise ValueError("candidate screen result count is invalid")
     if {result.get("screen_id") for result in results if isinstance(result, dict)} != expected_ids:
         raise ValueError("candidate screen identities do not exactly match the handoff")
+    selection_overfitting = screen.get("selection_overfitting")
+    if not isinstance(selection_overfitting, dict):
+        raise ValueError("candidate screen PBO report is missing")
+    pbo_status = selection_overfitting.get("status")
+    maximum_pbo = _number(
+        selection_overfitting.get("maximum_probability_backtest_overfitting"),
+        "selection_overfitting.maximum_probability_backtest_overfitting",
+        minimum=0,
+    )
+    pbo_value = selection_overfitting.get("probability_backtest_overfitting")
+    pbo_probability = (
+        None
+        if pbo_value is None
+        else _number(
+            pbo_value,
+            "selection_overfitting.probability_backtest_overfitting",
+            minimum=0,
+        )
+    )
+    if maximum_pbo != MAXIMUM_HISTORICAL_PBO:
+        raise ValueError("candidate screen PBO threshold is invalid")
+    if pbo_probability is not None and pbo_probability > 1:
+        raise ValueError("selection_overfitting probability must be <= 1")
+    pbo_pass = bool(
+        pbo_status == "AVAILABLE"
+        and pbo_probability is not None
+        and pbo_probability <= maximum_pbo
+    )
 
     generated_at = _utc_timestamp(screen.get("generated_at"), "screen.generated_at")
     screen_age = reference - generated_at
@@ -370,8 +399,12 @@ def load_vibe_artifacts(
             or p_bonferroni >= 0.05
             or dsr_probability is None
             or dsr_probability < minimum_dsr
+            or multiple.get("family_pbo_pass") is not True
+            or not pbo_pass
         ):
             raise ValueError("candidate screen pass bypasses a multiple-testing gate")
+        if bool(multiple.get("family_pbo_pass")) != pbo_pass:
+            raise ValueError("candidate screen PBO decision is inconsistent")
         lot = _number(candidate["cost_stress"].get("minimum_lot_reference"), "minimum lot", minimum=0)
         slippage = _number(
             candidate["cost_stress"].get("slippage_points_round_trip"),
