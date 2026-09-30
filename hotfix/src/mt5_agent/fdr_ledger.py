@@ -49,6 +49,7 @@ FAMILIES = {
     "strategy_chamber",      # entry-mode / parameter strategy specs graded by the chamber
     "rule_engine",           # non-TA rule hypotheses (rules_battery)
     "vibe_deterministic_fixed_rules",  # cumulative Vibe fixed-rule screens
+    "structural_hourweekday",  # repeated symbol x broker-hour x weekday structural screens
     "manual",                # ad-hoc one-offs -- still corrected, never exempt
 }
 

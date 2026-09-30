@@ -54,7 +54,7 @@
                   {
                       "source":  "hotfix/scripts/structural_walk_forward.py",
                       "destination":  "scripts/structural_walk_forward.py",
-                      "sha256":  "6502b64c5d6cc5b01783e60d116ecbbe6b67ce918f335241389570ef5b5bb0ff"
+                      "sha256":  "4346d17d97ef238fb7ff5ca74a41f1ad30d5a0ca468f00d94bb86af8b417ea03"
                   },
                   {
                       "source":  "hotfix/scripts/export_vibe_research_bundle.py",
@@ -139,7 +139,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/fdr_ledger.py",
                       "destination":  "src/mt5_agent/fdr_ledger.py",
-                      "sha256":  "a621cf504810f459391e981ae272e448af290a4d6bcf17a70d480dda9f0c1c9f"
+                      "sha256":  "340e27e5be29646ad0e2cdef1f41127b746f6064ff7763353def60349f214219"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/structural_validation.py",
