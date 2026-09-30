@@ -17,7 +17,7 @@ from pathlib import Path
 
 import MetaTrader5 as mt5
 
-from mt5_agent.fdr_ledger import benjamini_hochberg
+from mt5_agent.fdr_ledger import FDRLedger, benjamini_hochberg
 from mt5_agent.mt5_execution import feed_clock_provenance
 from mt5_agent.structural_validation import (
     StructuralObservation,
@@ -154,6 +154,11 @@ def main() -> None:
     parser.add_argument("--max-last-bar-age-hours", type=float, default=80.0)
     parser.add_argument("--slippage-points", type=float, default=6.0)
     parser.add_argument(
+        "--fdr-ledger", type=Path,
+        default=Path("data_cache/fdr_ledger.jsonl"),
+        help="Append-only cumulative FDR ledger; repeated scans must remain in its denominator.",
+    )
+    parser.add_argument(
         "--output", type=Path,
         default=Path("reports/structural-walk-forward-latest.json"),
     )
@@ -201,18 +206,33 @@ def main() -> None:
         pvalues = [float(item.get("oos", {}).get("one_sided_positive_p", 1.0)) for item in candidates]
         bh_mask = benjamini_hochberg(pvalues, q=0.05)
         denominator = len(candidates)
+        ledger = FDRLedger(args.fdr_ledger)
         for candidate, bh_reject, p_value in zip(candidates, bh_mask, pvalues):
+            ledger.record(
+                "structural_hourweekday",
+                str(candidate["spec_id"]),
+                p_value,
+                n=int(candidate.get("oos", {}).get("trades") or 0),
+                report_generated_at=datetime.now(tz=timezone.utc).isoformat(),
+            )
+        cumulative_discoveries = ledger.bh_rejected("structural_hourweekday", q=0.05)
+        cumulative_denominator = ledger.family_denominator("structural_hourweekday")
+        for candidate, bh_reject, p_value in zip(candidates, bh_mask, pvalues):
+            cumulative_discovery = str(candidate["spec_id"]) in cumulative_discoveries
             candidate["multiple_testing"] = {
-                "family": "fresh_structural_hourweekday",
-                "family_trials": denominator,
+                "family": "structural_hourweekday",
+                "family_trials_this_run": denominator,
+                "cumulative_family_trials": cumulative_denominator,
                 "p_raw": p_value,
                 "p_bonferroni": min(1.0, p_value * denominator),
                 "bh_fdr_q_0_05": bool(bh_reject),
+                "cumulative_bh_fdr_q_0_05": cumulative_discovery,
             }
             candidate["paper_candidate"] = bool(
                 candidate["verdict"] == "PASS"
                 and bh_reject
                 and p_value * denominator < 0.05
+                and cumulative_discovery
             )
             candidate["live_eligible"] = False
 
@@ -232,10 +252,12 @@ def main() -> None:
                 "costs_subtracted_per_trade": True,
                 "block_bootstrap_lower_bound_required": True,
                 "bonferroni_and_bh_fdr_required": True,
+                "cumulative_fdr_ledger_required": True,
                 "auto_promotion": False,
             },
             "symbols": symbol_reports,
             "family_trials": denominator,
+            "cumulative_family_trials": cumulative_denominator,
             "paper_candidates": survivors,
             "paper_candidate_count": len(survivors),
             "all_candidates": candidates,
