@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -292,3 +293,48 @@ def test_structural_paper_forward_health_rejects_duplicate_symbol(monkeypatch, t
 
     assert result["status"] == "WARN"
     assert "symbol concurrency" in result["reason"]
+
+
+def test_portfolio_budget_health_reports_fresh_bounded_coordinator(monkeypatch, tmp_path: Path):
+    budget = tmp_path / "portfolio_budget.json"
+    budget.write_text(json.dumps({
+        "cluster_cap": 2.0,
+        "budget": {"88002": 0.8, "88007": 0.8},
+        "clusters": {"JPY/short/wd0": [88002, 88007]},
+    }), encoding="utf-8")
+    reference = datetime(2026, 9, 30, 13, tzinfo=timezone.utc)
+    os.utime(budget, (reference.timestamp(), reference.timestamp()))
+    monkeypatch.setattr(vps_health, "PORTFOLIO_BUDGET_FILE", budget)
+
+    result = vps_health.check_portfolio_budget(reference)
+
+    assert result["status"] == "OK"
+    assert result["throttled_magics"] == ["88002", "88007"]
+
+
+def test_portfolio_budget_health_rejects_stale_or_unbounded_multiplier(monkeypatch, tmp_path: Path):
+    budget = tmp_path / "portfolio_budget.json"
+    budget.write_text(json.dumps({"cluster_cap": 2.0, "budget": {"88002": 1.5}, "clusters": {}}), encoding="utf-8")
+    reference = datetime(2026, 9, 30, 13, tzinfo=timezone.utc)
+    old = reference.timestamp() - 3 * 3600
+    os.utime(budget, (old, old))
+    monkeypatch.setattr(vps_health, "PORTFOLIO_BUDGET_FILE", budget)
+
+    result = vps_health.check_portfolio_budget(reference)
+
+    assert result["status"] == "WARN"
+    assert "stale" in result["reason"]
+    assert "invalid multipliers" in result["reason"]
+
+
+def test_portfolio_budget_health_reports_non_numeric_multiplier_as_invalid(monkeypatch, tmp_path: Path):
+    budget = tmp_path / "portfolio_budget.json"
+    budget.write_text(json.dumps({"cluster_cap": 2.0, "budget": {"88002": "bad"}, "clusters": {}}), encoding="utf-8")
+    reference = datetime(2026, 9, 30, 13, tzinfo=timezone.utc)
+    os.utime(budget, (reference.timestamp(), reference.timestamp()))
+    monkeypatch.setattr(vps_health, "PORTFOLIO_BUDGET_FILE", budget)
+
+    result = vps_health.check_portfolio_budget(reference)
+
+    assert result["status"] == "WARN"
+    assert result["invalid_magics"] == ["88002"]
