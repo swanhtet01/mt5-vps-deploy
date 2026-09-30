@@ -14,6 +14,9 @@ CANONICAL_SYMBOLS = frozenset({
     "GOLD", "SILVER", "OILCash", "BTCUSD", "ETHUSD", "US500Cash", "USDJPY",
     "UK100Cash", "AUDJPY", "GBPJPY", "EURUSD", "GBPUSD", "GER40Cash", "JP225Cash",
 })
+CANONICAL_UNIVERSE_SHA256 = hashlib.sha256(
+    json.dumps(sorted(CANONICAL_SYMBOLS), separators=(",", ":"), ensure_ascii=True).encode("ascii")
+).hexdigest()
 
 
 def _sha256(path: Path) -> str:
@@ -56,7 +59,8 @@ def _validated_receipt(
             or scope.get("canonical_full_universe") is not True
             or scope.get("paper_eligibility_allowed") is not True
             or scope.get("fdr_family") != CANONICAL_FAMILY
-            or not isinstance(symbols, list) or set(symbols) != CANONICAL_SYMBOLS):
+            or not isinstance(symbols, list) or set(symbols) != CANONICAL_SYMBOLS
+            or scope.get("universe_sha256") != CANONICAL_UNIVERSE_SHA256):
         raise ValueError("structural report is not canonical paper evidence")
     return state, report, report_path, finished.astimezone(timezone.utc)
 

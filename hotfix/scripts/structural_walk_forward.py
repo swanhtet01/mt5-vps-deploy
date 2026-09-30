@@ -7,6 +7,7 @@ does not edit the live registry, allowlist, environment, tasks, positions, or or
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import time
@@ -41,6 +42,12 @@ DEFAULT_SYMBOLS = [
     "GER40Cash", "JP225Cash",
 ]
 CRYPTO_SYMBOLS = {"BTCUSD", "ETHUSD"}
+
+
+def universe_sha256(symbols: list[str]) -> str:
+    """Stable scope fingerprint: ordering is irrelevant, membership is not."""
+    canonical = json.dumps(sorted(symbols), separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("ascii")).hexdigest()
 
 
 def research_family_for_symbols(symbols: list[str]) -> tuple[str, bool]:
@@ -276,6 +283,7 @@ def main() -> None:
             "symbols": symbol_reports,
             "research_scope": {
                 "symbols": symbols,
+                "universe_sha256": universe_sha256(symbols),
                 "canonical_full_universe": paper_eligibility_allowed,
                 "fdr_family": fdr_family,
                 "paper_eligibility_allowed": paper_eligibility_allowed,
