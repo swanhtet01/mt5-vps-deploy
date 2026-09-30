@@ -1,305 +1,305 @@
 {
-    "schema_version":  1,
-    "files":  [
-                  {
-                      "source":  "vps_health.py",
-                      "destination":  "scripts/vps_health.py",
-                      "sha256":  "708f4e29a2fb6f3ba2995cfa0e1d27cf689f50f3b0016f774e87d4217339ec51"
-                  },
-                  {
-                      "source":  "hotfix/scripts/paths.py",
-                      "destination":  "scripts/paths.py",
-                      "sha256":  "eb8e4b63fe863029cba8255daa92c1a1555c7d13a495d5f1bea3946b5ce9f531"
-                  },
-                  {
-                      "source":  "killswitch_monitor.py",
-                      "destination":  "scripts/killswitch_monitor.py",
-                      "sha256":  "e73b28c4503a0580dc5c682efcd7e5b51a42e37dfb7ea0a62d6a2fdae834b402"
-                  },
-                  {
-                      "source":  "heartbeat.py",
-                      "destination":  "scripts/heartbeat.py",
-                      "sha256":  "b9e32902880a009dce253afe52adac9cb3978492b24d107c7b39dcaa9cb0d057"
-                  },
-                  {
-                      "source":  "remote_control.py",
-                      "destination":  "scripts/remote_control.py",
-                      "sha256":  "305a33ac8333b8648bec7faeb6b6205ff1647aee8236acb0c12057d20b8506e8"
-                  },
-                  {
-                      "source":  "hotfix/scripts/gold_drift_live.py",
-                      "destination":  "scripts/gold_drift_live.py",
-                      "sha256":  "abd885a7ab73682fd6f348ec91268c0bcd88043de804dd55e4b14c35d9f18087"
-                  },
-                  {
-                      "source":  "hotfix/scripts/multi_drift_live.py",
-                      "destination":  "scripts/multi_drift_live.py",
-                      "sha256":  "be7431e1a734917a29d17cf446df14454393aeb3f8f5470a335be09c7d383b08"
-                  },
-                  {
-                      "source":  "hotfix/scripts/apply_approved_thesis.py",
-                      "destination":  "scripts/apply_approved_thesis.py",
-                      "sha256":  "5f7f4ea13b13bdcd9e70ed56cdd36a926c8083429470c52e7738d5d773896268"
-                  },
-                  {
-                      "source":  "hotfix/scripts/intraday_mean_rev.py",
-                      "destination":  "scripts/intraday_mean_rev.py",
-                      "sha256":  "c3e5b4f9feefcf4500b2a1e8a75929f09852f16ded0e24bb6bb4ee6b0e0316f0"
-                  },
-                  {
-                      "source":  "hotfix/scripts/structural_scheduler.py",
-                      "destination":  "scripts/structural_scheduler.py",
-                      "sha256":  "a056f5a8cb9486dc0d49a010358dccea8474d25fc20c23e8c3df4fe12766da82"
-                  },
-                  {
-                      "source":  "hotfix/scripts/structural_walk_forward.py",
-                      "destination":  "scripts/structural_walk_forward.py",
-                      "sha256":  "44c69e7fd385f5270200e0bce6212bcb3843852faf5cf78b9a539656b12f20d3"
-                  },
-                  {
-                      "source":  "hotfix/scripts/export_vibe_research_bundle.py",
-                      "destination":  "scripts/export_vibe_research_bundle.py",
-                      "sha256":  "3fa19e6b0afca020ff10f4b52faed71a95fd3a8de644a67a432dc366954ab5d2"
-                  },
-                  {
-                      "source":  "hotfix/scripts/vibe_deterministic_research.py",
-                      "destination":  "scripts/vibe_deterministic_research.py",
-                      "sha256":  "3f324d3ec8ee55bf34f6b62e1c776944fbc917d492afe1ceaa8c0a14acd4c9e8"
-                  },
-                  {
-                      "source":  "hotfix/scripts/setup-vibe-research.ps1",
-                      "destination":  "scripts/setup-vibe-research.ps1",
-                      "sha256":  "aefde27faf7269153a4487b748a7fcf1429838d99816feb2ecd64bb42e07a92b"
-                  },
-                  {
-                      "source":  "hotfix/scripts/set-vibe-provider-secret.ps1",
-                      "destination":  "scripts/set-vibe-provider-secret.ps1",
-                      "sha256":  "3aee4ac4b75270513cff4e7cac7ce4995d5d9c5d3e82232aee3a58300dccf3e7"
-                  },
-                  {
-                      "source":  "hotfix/scripts/run-vibe-research.ps1",
-                      "destination":  "scripts/run-vibe-research.ps1",
-                      "sha256":  "b03e424c45cb44391aa1c59cc1eab5cedee112df35a44db78765204bad393678"
-                  },
-                  {
-                      "source":  "hotfix/scripts/vibe_research_entry.py",
-                      "destination":  "scripts/vibe_research_entry.py",
-                      "sha256":  "8ee2f2706071753bd0663233486c768fe598a0ea883d487fa530a070a4d622ce"
-                  },
-                  {
-                      "source":  "hotfix/scripts/vps_maintenance.py",
-                      "destination":  "scripts/vps_maintenance.py",
-                      "sha256":  "dd9aefcb78c41ed3224224bbf8809e0a2bdcf9aa6fe4e54d736ee98bf96552e4"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/mt5_execution.py",
-                      "destination":  "src/mt5_agent/mt5_execution.py",
-                      "sha256":  "216cbe29f6419c63372a933b9ad6070715b4b66c7f245c44325fd7402f7eec04"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/trade_history.py",
-                      "destination":  "src/mt5_agent/trade_history.py",
-                      "sha256":  "0f8d401aba2d4756c2be2c98f141414abe728d70961d45e22b549d99d7f99007"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/vibe_bridge.py",
-                      "destination":  "src/mt5_agent/vibe_bridge.py",
-                      "sha256":  "1d43a0e3a2d31053d3aed859fd4c78022e9699e4559962918eddf3fb2eef824e"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/vibe_handoff.py",
-                      "destination":  "src/mt5_agent/vibe_handoff.py",
-                      "sha256":  "628aa3385150eef742aa933ff70356b0757bf0d068419e9014ef7c9351a1c681"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/edge_registry.py",
-                      "destination":  "src/mt5_agent/edge_registry.py",
-                      "sha256":  "aa79e17bf2fd255e683f625e322872b55e9e94a95172b74365eeef798988c5a9"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/portfolio_budget.py",
-                      "destination":  "src/mt5_agent/portfolio_budget.py",
-                      "sha256":  "251274f4e292a9400a5df4cf0b10838c17787a3ca2d5c9bd502b7d806001183c"
-                  },
-                  {
-                      "source":  "hotfix/research/vibe_research_prompt.txt",
-                      "destination":  "research/vibe_research_prompt.txt",
-                      "sha256":  "1f6e8f900977856f388682983a0df25034dad5ed1393410bca7ec0b737de6999"
-                  },
-                  {
-                      "source":  "hotfix/config.research-multi-asset-h1.toml",
-                      "destination":  "config.research-multi-asset-h1.toml",
-                      "sha256":  "8f20f79be06e3f36b3cbdb3ba5693318ce8e93f7a126c8a0103804ba077b76b7"
-                  },
-                  {
-                      "source":  "hotfix/scripts/vibe_candidate_screen.py",
-                      "destination":  "scripts/vibe_candidate_screen.py",
-                      "sha256":  "429a43700cba6b75ce40b14df1868d64edc2588690d6ea6f28148f3f3e886822"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/fdr_ledger.py",
-                      "destination":  "src/mt5_agent/fdr_ledger.py",
-                      "sha256":  "528ad2d26ed7a8d5ee4d8f84f7ce2da183a7fe62efeef83e3ac6f07369f91f27"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/structural_validation.py",
-                      "destination":  "src/mt5_agent/structural_validation.py",
-                      "sha256":  "39ddc8a34835b37e20d8c65f5882f5c698313231aaf293608982a5c4c60ce0ca"
-                  },
-                  {
-                      "source":  "hotfix/scripts/vibe_shadow_forward.py",
-                      "destination":  "scripts/vibe_shadow_forward.py",
-                      "sha256":  "f147263d0f4ac3e4420e4fbd42e5f21982fe6af416bb3dfbcb39b03f5fad4fe7"
-                  },
-                  {
-                      "source":  "hotfix/scripts/run-vibe-shadow-once.ps1",
-                      "destination":  "scripts/run-vibe-shadow-once.ps1",
-                      "sha256":  "77e65ba6322bdba011529d94a6a922dc88de4d1637cf1456540e5760d11b36a0"
-                  },
-                  {
-                      "source":  "hotfix/scripts/register-vibe-shadow.ps1",
-                      "destination":  "scripts/register-vibe-shadow.ps1",
-                      "sha256":  "ce5518ca54fa58aadc86b83bb7e3b6cdbdc0c75ce212f1382dce478f70868951"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/vibe_rules.py",
-                      "destination":  "src/mt5_agent/vibe_rules.py",
-                      "sha256":  "b858ffcb441b5f5b2b21687e9482f1c8d9e4953f4f3f4df06a2f717e9378c528"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/vibe_shadow.py",
-                      "destination":  "src/mt5_agent/vibe_shadow.py",
-                      "sha256":  "4665caf5f8846fdf65ade4fd00480f0911bb149803c911d96b84f3aa80246065"
-                  },
-                  {
-                      "source":  "notify.py",
-                      "destination":  "scripts/notify.py",
-                      "sha256":  "0bff29196d20eb6efa67786a2ef7c03d2ae942b6275e9440cbcf9e19174423d1"
-                  },
-                  {
-                      "source":  "hotfix/scripts/dashboard.py",
-                      "destination":  "scripts/dashboard.py",
-                      "sha256":  "8470802f275beab080b60e7a2a58085fd66065ff0b5e1f77d89b7292d2b3150c"
-                  },
-                  {
-                      "source":  "hotfix/scripts/dynamic_sizing.py",
-                      "destination":  "scripts/dynamic_sizing.py",
-                      "sha256":  "6a19f3f34c1618f2a9f2966eb6869d3112ec1cbad7d7e911a769c865363e2fd9"
-                  },
-                  {
-                      "source":  "hotfix/scripts/html_dashboard.py",
-                      "destination":  "scripts/html_dashboard.py",
-                      "sha256":  "7a5d54f26d1ced67de4cf6dfd829ba9d2294694f5c4a8a7caf5af5858742b170"
-                  },
-                  {
-                      "source":  "hotfix/scripts/news_digest.py",
-                      "destination":  "scripts/news_digest.py",
-                      "sha256":  "cea605056f7e7cb8b8596e6f1899a0fc8155de9f30200fe13ddb005efcf0989e"
-                  },
-                  {
-                      "source":  "hotfix/scripts/pattern_learn.py",
-                      "destination":  "scripts/pattern_learn.py",
-                      "sha256":  "3f8f9f1f5ccade1df761d60a79e564c206a1e4f2214f867cb8846780762ad88f"
-                  },
-                  {
-                      "source":  "hotfix/scripts/perf_report.py",
-                      "destination":  "scripts/perf_report.py",
-                      "sha256":  "f23465003498831a9b8c8f8bb5e7d473e8feaa8f8e2eb3f1dfd676945fa588c4"
-                  },
-                  {
-                      "source":  "hotfix/scripts/position_monitor.py",
-                      "destination":  "scripts/position_monitor.py",
-                      "sha256":  "21d741ab1bf5832936ba6701c04b064f415d84c21bd846b086e1b5f4a15b14c8"
-                  },
-                  {
-                      "source":  "hotfix/scripts/self_improver.py",
-                      "destination":  "scripts/self_improver.py",
-                      "sha256":  "bc9660a84b5998b2982716d640f1d862edd75ad6651ce15e808f2f4f21efadee"
-                  },
-                  {
-                      "source":  "hotfix/scripts/swing_trader.py",
-                      "destination":  "scripts/swing_trader.py",
-                      "sha256":  "456b5cf12c080e6a4ba0c60e0149e782244ceb1505024249ee7a3c116cd23717"
-                  },
-                  {
-                      "source":  "hotfix/scripts/trading_review_dashboard.py",
-                      "destination":  "scripts/trading_review_dashboard.py",
-                      "sha256":  "0deceae83033380f62510cfd1ce1c883c3fe2664f68e8aba451c21b918348d4f"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/broker.py",
-                      "destination":  "src/mt5_agent/broker.py",
-                      "sha256":  "0db5a7f0c609ffc9e8a78dfe3dac19b12a5da6a59268c16fd76caf8b316ac65f"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/drift_monitor.py",
-                      "destination":  "src/mt5_agent/drift_monitor.py",
-                      "sha256":  "4a387ea6d448c264f7161d42540bb8401ec30fb36aedebfb1d0d6356ad104e51"
-                  },
-                  {
-                      "source":  "hotfix/scripts/run-profit-funded-scaling-once.ps1",
-                      "destination":  "scripts/run-profit-funded-scaling-once.ps1",
-                      "sha256":  "d0c56cedfa44b35abfbd82519eaffddd479cb49ad9d57cee53ba05a3e3c26e4a"
-                  },
-                  {
-                      "source":  "hotfix/scripts/register-profit-funded-scaling.ps1",
-                      "destination":  "scripts/register-profit-funded-scaling.ps1",
-                      "sha256":  "4a2f8a510ed6cd3fb379df39bafd852217ec12e65ecb2ad7e7175f436b8be687"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/profit_funded_scaling.py",
-                      "destination":  "src/mt5_agent/profit_funded_scaling.py",
-                      "sha256":  "f2718d4ffd38397752c8ea36a13c6bc725236b35938c23201661a66c917dedc7"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/models.py",
-                      "destination":  "src/mt5_agent/models.py",
-                      "sha256":  "0e6520f3557cb92af572dacc00505363c318990608a288a6906186cc08e5bc38"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/deals.py",
-                      "destination":  "src/mt5_agent/deals.py",
-                      "sha256":  "bf9c85bda4ab4f4753de3ce77889c74fa71508d4ae32c564afe66a3c578b9b7b"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/risk.py",
-                      "destination":  "src/mt5_agent/risk.py",
-                      "sha256":  "205c81f62809c9bdaca98d308200c6c70ccd0f945829a5cfb068330fc58374e4"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/agent.py",
-                      "destination":  "src/mt5_agent/agent.py",
-                      "sha256":  "8d52cb2bc528deecb0b191db53f096944becc6ed3fb5eca3bebc215b755019b4"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/cli.py",
-                      "destination":  "src/mt5_agent/cli.py",
-                      "sha256":  "0d17c59ec872a9eadf3214dbd93366204d8d0ffe8326ea8e62a8884da7834582"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/scaling.py",
-                      "destination":  "src/mt5_agent/scaling.py",
-                      "sha256":  "f716963cefb2f96e87081cb872a962a0588a974bb92139f6aa5e202973ddaa65"
-                  },
-                  {
-                      "source":  "hotfix/scripts/build_dashboard_metrics.py",
-                      "destination":  "scripts/build_dashboard_metrics.py",
-                      "sha256":  "935f45869cbd8b6f720b54881b40eb9e64d693a06216ffb75a0588a35217ccfd"
-                  },
-                  {
-                      "source":  "hotfix/scripts/thesis_ingest.py",
-                      "destination":  "scripts/thesis_ingest.py",
-                      "sha256":  "7843d04b967cd8240c06fcb1d19aecd7e4650034771b14a8b99516bf53737ba9"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/claude_thesis_generator.py",
-                      "destination":  "src/mt5_agent/claude_thesis_generator.py",
-                      "sha256":  "94d24b615a32a71d480394154a36ef3d295c1d960b23ae5443014947c17585a9"
-                  },
-                  {
-                      "source":  "hotfix/src/mt5_agent/dashboard_metrics.py",
-                      "destination":  "src/mt5_agent/dashboard_metrics.py",
-                      "sha256":  "6206a688d6783ef021fd2ad4b3622bbd43d2c18c0caa42321abc8f2a67e658ac"
-                  }
-              ]
+  "schema_version": 1,
+  "files": [
+    {
+      "source": "vps_health.py",
+      "destination": "scripts/vps_health.py",
+      "sha256": "708f4e29a2fb6f3ba2995cfa0e1d27cf689f50f3b0016f774e87d4217339ec51"
+    },
+    {
+      "source": "hotfix/scripts/paths.py",
+      "destination": "scripts/paths.py",
+      "sha256": "eb8e4b63fe863029cba8255daa92c1a1555c7d13a495d5f1bea3946b5ce9f531"
+    },
+    {
+      "source": "killswitch_monitor.py",
+      "destination": "scripts/killswitch_monitor.py",
+      "sha256": "e73b28c4503a0580dc5c682efcd7e5b51a42e37dfb7ea0a62d6a2fdae834b402"
+    },
+    {
+      "source": "heartbeat.py",
+      "destination": "scripts/heartbeat.py",
+      "sha256": "b9e32902880a009dce253afe52adac9cb3978492b24d107c7b39dcaa9cb0d057"
+    },
+    {
+      "source": "remote_control.py",
+      "destination": "scripts/remote_control.py",
+      "sha256": "305a33ac8333b8648bec7faeb6b6205ff1647aee8236acb0c12057d20b8506e8"
+    },
+    {
+      "source": "hotfix/scripts/gold_drift_live.py",
+      "destination": "scripts/gold_drift_live.py",
+      "sha256": "abd885a7ab73682fd6f348ec91268c0bcd88043de804dd55e4b14c35d9f18087"
+    },
+    {
+      "source": "hotfix/scripts/multi_drift_live.py",
+      "destination": "scripts/multi_drift_live.py",
+      "sha256": "be7431e1a734917a29d17cf446df14454393aeb3f8f5470a335be09c7d383b08"
+    },
+    {
+      "source": "hotfix/scripts/apply_approved_thesis.py",
+      "destination": "scripts/apply_approved_thesis.py",
+      "sha256": "5f7f4ea13b13bdcd9e70ed56cdd36a926c8083429470c52e7738d5d773896268"
+    },
+    {
+      "source": "hotfix/scripts/intraday_mean_rev.py",
+      "destination": "scripts/intraday_mean_rev.py",
+      "sha256": "c3e5b4f9feefcf4500b2a1e8a75929f09852f16ded0e24bb6bb4ee6b0e0316f0"
+    },
+    {
+      "source": "hotfix/scripts/structural_scheduler.py",
+      "destination": "scripts/structural_scheduler.py",
+      "sha256": "4662940e0ad244c70598bc6297c6277d7763c2de59df037072e57298acf023fe"
+    },
+    {
+      "source": "hotfix/scripts/structural_walk_forward.py",
+      "destination": "scripts/structural_walk_forward.py",
+      "sha256": "44c69e7fd385f5270200e0bce6212bcb3843852faf5cf78b9a539656b12f20d3"
+    },
+    {
+      "source": "hotfix/scripts/export_vibe_research_bundle.py",
+      "destination": "scripts/export_vibe_research_bundle.py",
+      "sha256": "3fa19e6b0afca020ff10f4b52faed71a95fd3a8de644a67a432dc366954ab5d2"
+    },
+    {
+      "source": "hotfix/scripts/vibe_deterministic_research.py",
+      "destination": "scripts/vibe_deterministic_research.py",
+      "sha256": "3f324d3ec8ee55bf34f6b62e1c776944fbc917d492afe1ceaa8c0a14acd4c9e8"
+    },
+    {
+      "source": "hotfix/scripts/setup-vibe-research.ps1",
+      "destination": "scripts/setup-vibe-research.ps1",
+      "sha256": "aefde27faf7269153a4487b748a7fcf1429838d99816feb2ecd64bb42e07a92b"
+    },
+    {
+      "source": "hotfix/scripts/set-vibe-provider-secret.ps1",
+      "destination": "scripts/set-vibe-provider-secret.ps1",
+      "sha256": "3aee4ac4b75270513cff4e7cac7ce4995d5d9c5d3e82232aee3a58300dccf3e7"
+    },
+    {
+      "source": "hotfix/scripts/run-vibe-research.ps1",
+      "destination": "scripts/run-vibe-research.ps1",
+      "sha256": "b03e424c45cb44391aa1c59cc1eab5cedee112df35a44db78765204bad393678"
+    },
+    {
+      "source": "hotfix/scripts/vibe_research_entry.py",
+      "destination": "scripts/vibe_research_entry.py",
+      "sha256": "8ee2f2706071753bd0663233486c768fe598a0ea883d487fa530a070a4d622ce"
+    },
+    {
+      "source": "hotfix/scripts/vps_maintenance.py",
+      "destination": "scripts/vps_maintenance.py",
+      "sha256": "dd9aefcb78c41ed3224224bbf8809e0a2bdcf9aa6fe4e54d736ee98bf96552e4"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/mt5_execution.py",
+      "destination": "src/mt5_agent/mt5_execution.py",
+      "sha256": "216cbe29f6419c63372a933b9ad6070715b4b66c7f245c44325fd7402f7eec04"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/trade_history.py",
+      "destination": "src/mt5_agent/trade_history.py",
+      "sha256": "0f8d401aba2d4756c2be2c98f141414abe728d70961d45e22b549d99d7f99007"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/vibe_bridge.py",
+      "destination": "src/mt5_agent/vibe_bridge.py",
+      "sha256": "1d43a0e3a2d31053d3aed859fd4c78022e9699e4559962918eddf3fb2eef824e"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/vibe_handoff.py",
+      "destination": "src/mt5_agent/vibe_handoff.py",
+      "sha256": "628aa3385150eef742aa933ff70356b0757bf0d068419e9014ef7c9351a1c681"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/edge_registry.py",
+      "destination": "src/mt5_agent/edge_registry.py",
+      "sha256": "aa79e17bf2fd255e683f625e322872b55e9e94a95172b74365eeef798988c5a9"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/portfolio_budget.py",
+      "destination": "src/mt5_agent/portfolio_budget.py",
+      "sha256": "251274f4e292a9400a5df4cf0b10838c17787a3ca2d5c9bd502b7d806001183c"
+    },
+    {
+      "source": "hotfix/research/vibe_research_prompt.txt",
+      "destination": "research/vibe_research_prompt.txt",
+      "sha256": "1f6e8f900977856f388682983a0df25034dad5ed1393410bca7ec0b737de6999"
+    },
+    {
+      "source": "hotfix/config.research-multi-asset-h1.toml",
+      "destination": "config.research-multi-asset-h1.toml",
+      "sha256": "8f20f79be06e3f36b3cbdb3ba5693318ce8e93f7a126c8a0103804ba077b76b7"
+    },
+    {
+      "source": "hotfix/scripts/vibe_candidate_screen.py",
+      "destination": "scripts/vibe_candidate_screen.py",
+      "sha256": "429a43700cba6b75ce40b14df1868d64edc2588690d6ea6f28148f3f3e886822"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/fdr_ledger.py",
+      "destination": "src/mt5_agent/fdr_ledger.py",
+      "sha256": "528ad2d26ed7a8d5ee4d8f84f7ce2da183a7fe62efeef83e3ac6f07369f91f27"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/structural_validation.py",
+      "destination": "src/mt5_agent/structural_validation.py",
+      "sha256": "39ddc8a34835b37e20d8c65f5882f5c698313231aaf293608982a5c4c60ce0ca"
+    },
+    {
+      "source": "hotfix/scripts/vibe_shadow_forward.py",
+      "destination": "scripts/vibe_shadow_forward.py",
+      "sha256": "f147263d0f4ac3e4420e4fbd42e5f21982fe6af416bb3dfbcb39b03f5fad4fe7"
+    },
+    {
+      "source": "hotfix/scripts/run-vibe-shadow-once.ps1",
+      "destination": "scripts/run-vibe-shadow-once.ps1",
+      "sha256": "77e65ba6322bdba011529d94a6a922dc88de4d1637cf1456540e5760d11b36a0"
+    },
+    {
+      "source": "hotfix/scripts/register-vibe-shadow.ps1",
+      "destination": "scripts/register-vibe-shadow.ps1",
+      "sha256": "ce5518ca54fa58aadc86b83bb7e3b6cdbdc0c75ce212f1382dce478f70868951"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/vibe_rules.py",
+      "destination": "src/mt5_agent/vibe_rules.py",
+      "sha256": "b858ffcb441b5f5b2b21687e9482f1c8d9e4953f4f3f4df06a2f717e9378c528"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/vibe_shadow.py",
+      "destination": "src/mt5_agent/vibe_shadow.py",
+      "sha256": "4665caf5f8846fdf65ade4fd00480f0911bb149803c911d96b84f3aa80246065"
+    },
+    {
+      "source": "notify.py",
+      "destination": "scripts/notify.py",
+      "sha256": "0bff29196d20eb6efa67786a2ef7c03d2ae942b6275e9440cbcf9e19174423d1"
+    },
+    {
+      "source": "hotfix/scripts/dashboard.py",
+      "destination": "scripts/dashboard.py",
+      "sha256": "8470802f275beab080b60e7a2a58085fd66065ff0b5e1f77d89b7292d2b3150c"
+    },
+    {
+      "source": "hotfix/scripts/dynamic_sizing.py",
+      "destination": "scripts/dynamic_sizing.py",
+      "sha256": "6a19f3f34c1618f2a9f2966eb6869d3112ec1cbad7d7e911a769c865363e2fd9"
+    },
+    {
+      "source": "hotfix/scripts/html_dashboard.py",
+      "destination": "scripts/html_dashboard.py",
+      "sha256": "7a5d54f26d1ced67de4cf6dfd829ba9d2294694f5c4a8a7caf5af5858742b170"
+    },
+    {
+      "source": "hotfix/scripts/news_digest.py",
+      "destination": "scripts/news_digest.py",
+      "sha256": "cea605056f7e7cb8b8596e6f1899a0fc8155de9f30200fe13ddb005efcf0989e"
+    },
+    {
+      "source": "hotfix/scripts/pattern_learn.py",
+      "destination": "scripts/pattern_learn.py",
+      "sha256": "3f8f9f1f5ccade1df761d60a79e564c206a1e4f2214f867cb8846780762ad88f"
+    },
+    {
+      "source": "hotfix/scripts/perf_report.py",
+      "destination": "scripts/perf_report.py",
+      "sha256": "f23465003498831a9b8c8f8bb5e7d473e8feaa8f8e2eb3f1dfd676945fa588c4"
+    },
+    {
+      "source": "hotfix/scripts/position_monitor.py",
+      "destination": "scripts/position_monitor.py",
+      "sha256": "21d741ab1bf5832936ba6701c04b064f415d84c21bd846b086e1b5f4a15b14c8"
+    },
+    {
+      "source": "hotfix/scripts/self_improver.py",
+      "destination": "scripts/self_improver.py",
+      "sha256": "bc9660a84b5998b2982716d640f1d862edd75ad6651ce15e808f2f4f21efadee"
+    },
+    {
+      "source": "hotfix/scripts/swing_trader.py",
+      "destination": "scripts/swing_trader.py",
+      "sha256": "456b5cf12c080e6a4ba0c60e0149e782244ceb1505024249ee7a3c116cd23717"
+    },
+    {
+      "source": "hotfix/scripts/trading_review_dashboard.py",
+      "destination": "scripts/trading_review_dashboard.py",
+      "sha256": "0deceae83033380f62510cfd1ce1c883c3fe2664f68e8aba451c21b918348d4f"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/broker.py",
+      "destination": "src/mt5_agent/broker.py",
+      "sha256": "0db5a7f0c609ffc9e8a78dfe3dac19b12a5da6a59268c16fd76caf8b316ac65f"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/drift_monitor.py",
+      "destination": "src/mt5_agent/drift_monitor.py",
+      "sha256": "4a387ea6d448c264f7161d42540bb8401ec30fb36aedebfb1d0d6356ad104e51"
+    },
+    {
+      "source": "hotfix/scripts/run-profit-funded-scaling-once.ps1",
+      "destination": "scripts/run-profit-funded-scaling-once.ps1",
+      "sha256": "d0c56cedfa44b35abfbd82519eaffddd479cb49ad9d57cee53ba05a3e3c26e4a"
+    },
+    {
+      "source": "hotfix/scripts/register-profit-funded-scaling.ps1",
+      "destination": "scripts/register-profit-funded-scaling.ps1",
+      "sha256": "4a2f8a510ed6cd3fb379df39bafd852217ec12e65ecb2ad7e7175f436b8be687"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/profit_funded_scaling.py",
+      "destination": "src/mt5_agent/profit_funded_scaling.py",
+      "sha256": "f2718d4ffd38397752c8ea36a13c6bc725236b35938c23201661a66c917dedc7"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/models.py",
+      "destination": "src/mt5_agent/models.py",
+      "sha256": "0e6520f3557cb92af572dacc00505363c318990608a288a6906186cc08e5bc38"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/deals.py",
+      "destination": "src/mt5_agent/deals.py",
+      "sha256": "bf9c85bda4ab4f4753de3ce77889c74fa71508d4ae32c564afe66a3c578b9b7b"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/risk.py",
+      "destination": "src/mt5_agent/risk.py",
+      "sha256": "205c81f62809c9bdaca98d308200c6c70ccd0f945829a5cfb068330fc58374e4"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/agent.py",
+      "destination": "src/mt5_agent/agent.py",
+      "sha256": "8d52cb2bc528deecb0b191db53f096944becc6ed3fb5eca3bebc215b755019b4"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/cli.py",
+      "destination": "src/mt5_agent/cli.py",
+      "sha256": "0d17c59ec872a9eadf3214dbd93366204d8d0ffe8326ea8e62a8884da7834582"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/scaling.py",
+      "destination": "src/mt5_agent/scaling.py",
+      "sha256": "f716963cefb2f96e87081cb872a962a0588a974bb92139f6aa5e202973ddaa65"
+    },
+    {
+      "source": "hotfix/scripts/build_dashboard_metrics.py",
+      "destination": "scripts/build_dashboard_metrics.py",
+      "sha256": "935f45869cbd8b6f720b54881b40eb9e64d693a06216ffb75a0588a35217ccfd"
+    },
+    {
+      "source": "hotfix/scripts/thesis_ingest.py",
+      "destination": "scripts/thesis_ingest.py",
+      "sha256": "7843d04b967cd8240c06fcb1d19aecd7e4650034771b14a8b99516bf53737ba9"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/claude_thesis_generator.py",
+      "destination": "src/mt5_agent/claude_thesis_generator.py",
+      "sha256": "94d24b615a32a71d480394154a36ef3d295c1d960b23ae5443014947c17585a9"
+    },
+    {
+      "source": "hotfix/src/mt5_agent/dashboard_metrics.py",
+      "destination": "src/mt5_agent/dashboard_metrics.py",
+      "sha256": "6206a688d6783ef021fd2ad4b3622bbd43d2c18c0caa42321abc8f2a67e658ac"
+    }
+  ]
 }
