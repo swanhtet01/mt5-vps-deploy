@@ -98,7 +98,7 @@ try {
         "--config", (Join-Path $ProjectRoot $Config),
         "--out-root", $ExportsRoot,
         "--timeframe", "H1",
-        "--bars", "5000",
+        "--bars", "30000",
         "--history-days", "365"
     )
     if ($Symbols.Count -gt 0) {

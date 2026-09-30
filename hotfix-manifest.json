@@ -59,7 +59,7 @@
                   {
                       "source":  "hotfix/scripts/export_vibe_research_bundle.py",
                       "destination":  "scripts/export_vibe_research_bundle.py",
-                      "sha256":  "20c78e862cee7c8479c009025d9bec65a9753d55892cd378b2d3818e415a017c"
+                      "sha256":  "4a72df70bbab7c896d9a2a6c39f6505192f44e48fd1150817477c3c09ad1d0b9"
                   },
                   {
                       "source":  "hotfix/scripts/vibe_deterministic_research.py",
@@ -79,7 +79,7 @@
                   {
                       "source":  "hotfix/scripts/run-vibe-research.ps1",
                       "destination":  "scripts/run-vibe-research.ps1",
-                      "sha256":  "49c004ab15877144ca006ec0696247e3f9ab0435c3e8ccdc0e840d3f4785a588"
+                      "sha256":  "b03e424c45cb44391aa1c59cc1eab5cedee112df35a44db78765204bad393678"
                   },
                   {
                       "source":  "hotfix/scripts/vibe_research_entry.py",
