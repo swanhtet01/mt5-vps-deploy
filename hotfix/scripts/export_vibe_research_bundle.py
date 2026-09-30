@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import shutil
 import time
 import uuid
@@ -94,6 +95,50 @@ def fresh_completed_bars(
     raise RuntimeError(last_reason)
 
 
+def current_minimum_lot_margin(
+    mt5: object,
+    symbol: str,
+    symbol_info: object,
+    account_currency: str,
+) -> dict:
+    """Capture broker-native margin estimates without checking or submitting an order."""
+    volume = float(getattr(symbol_info, "volume_min", 0.0) or 0.0)
+    tick = mt5.symbol_info_tick(symbol)
+    basis = "MT5 order_calc_margin at current quote; no order submitted"
+    if volume <= 0 or tick is None:
+        return {
+            "status": "UNAVAILABLE",
+            "basis": basis,
+            "account_currency": account_currency,
+            "minimum_lot": volume,
+            "reason": "minimum lot or current quote unavailable",
+        }
+    estimates: dict[str, float] = {}
+    for side, order_type, price in (
+        ("buy", mt5.ORDER_TYPE_BUY, float(getattr(tick, "ask", 0.0) or 0.0)),
+        ("sell", mt5.ORDER_TYPE_SELL, float(getattr(tick, "bid", 0.0) or 0.0)),
+    ):
+        margin = mt5.order_calc_margin(order_type, symbol, volume, price) if price > 0 else None
+        if margin is None or not math.isfinite(float(margin)) or float(margin) < 0:
+            return {
+                "status": "UNAVAILABLE",
+                "basis": basis,
+                "account_currency": account_currency,
+                "minimum_lot": volume,
+                "reason": f"{side} margin estimate unavailable",
+            }
+        estimates[side] = round(float(margin), 8)
+    return {
+        "status": "AVAILABLE",
+        "basis": basis,
+        "account_currency": account_currency,
+        "minimum_lot": volume,
+        "buy": estimates["buy"],
+        "sell": estimates["sell"],
+        "maximum": max(estimates.values()),
+    }
+
+
 def main() -> int:
     args = parse_args()
     config = load_config(args.config)
@@ -111,6 +156,9 @@ def main() -> int:
     broker = MT5Broker()
     try:
         staging.mkdir(parents=True, exist_ok=False)
+        account_info = broker.mt5.account_info()
+        if account_info is None:
+            raise RuntimeError(f"account_info failed: {broker.mt5.last_error()}")
         reference_symbol, feed_clock = coherent_reference_clock(broker.mt5, symbols, now)
         sources: list[dict[str, str]] = []
         bar_records: list[dict] = []
@@ -140,7 +188,16 @@ def main() -> int:
                 if symbol_info is None:
                     raise RuntimeError("symbol metadata became unavailable")
                 instrument_snapshots.append(
-                    sanitized_instrument_snapshot(symbol, symbol_info)
+                    sanitized_instrument_snapshot(
+                        symbol,
+                        symbol_info,
+                        minimum_lot_margin=current_minimum_lot_margin(
+                            broker.mt5,
+                            symbol,
+                            symbol_info,
+                            str(getattr(account_info, "currency", "")),
+                        ),
+                    )
                 )
                 bar_records.append(
                     file_record(
@@ -160,9 +217,6 @@ def main() -> int:
         if not sources:
             raise RuntimeError("No symbol produced a usable completed-bar export")
 
-        account_info = broker.mt5.account_info()
-        if account_info is None:
-            raise RuntimeError(f"account_info failed: {broker.mt5.last_error()}")
         account_path = staging / "account_snapshot.redacted.json"
         write_json(account_path, sanitized_account_snapshot(account_info, captured_at=now))
 

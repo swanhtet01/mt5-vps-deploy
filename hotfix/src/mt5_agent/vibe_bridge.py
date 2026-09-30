@@ -70,7 +70,12 @@ def sanitized_account_snapshot(account_info: object, *, captured_at: datetime) -
     }
 
 
-def sanitized_instrument_snapshot(symbol: str, symbol_info: object) -> dict:
+def sanitized_instrument_snapshot(
+    symbol: str,
+    symbol_info: object,
+    *,
+    minimum_lot_margin: Mapping | None = None,
+) -> dict:
     """Whitelist execution metadata needed to interpret an MT5 CFD lot."""
     keys = (
         "point",
@@ -94,12 +99,15 @@ def sanitized_instrument_snapshot(symbol: str, symbol_info: object) -> dict:
         for key in keys
         if getattr(symbol_info, key, None) is not None
     }
-    return {
+    payload = {
         "schema": "mt5.instrument_snapshot.v1",
         "symbol": symbol,
         "spread_basis": "current_terminal_snapshot_not_historical_cost_series",
         **values,
     }
+    if minimum_lot_margin is not None:
+        payload["minimum_lot_margin"] = dict(minimum_lot_margin)
+    return payload
 
 
 def write_bar_csv(path: Path, bars: Iterable[Bar]) -> dict:

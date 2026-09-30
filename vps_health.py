@@ -55,6 +55,7 @@ VIBE_SHADOW_MAX_AGE_MINUTES = 20.0
 VIBE_MINIMUM_DSR_PROBABILITY = 0.95
 VIBE_MAXIMUM_PBO = 0.20
 VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
+VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION = 0.25
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
 DEPLOY_ROOT = Path(r"C:\mt5-deploy")
 DEPLOYMENT_RECEIPT_FILE = DEPLOY_ROOT / "deployment_receipt.json"
@@ -398,6 +399,9 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
         or method.get("minimum_lot_stop_risk_required") is not True
         or method.get("maximum_minimum_lot_stop_risk_fraction")
         != VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION
+        or method.get("minimum_lot_margin_required") is not True
+        or method.get("maximum_minimum_lot_margin_free_fraction")
+        != VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION
     ):
         problems.append("Vibe candidate screen statistical method contract is invalid")
     if not isinstance(selection, dict):
@@ -425,6 +429,7 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
         problems.append("Vibe candidate screen results are missing")
         results = []
     risk_fit_count = 0
+    margin_fit_count = 0
     for item in results:
         multiple = item.get("multiple_testing") if isinstance(item, dict) else None
         if (
@@ -462,6 +467,25 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
             problems.append("Vibe candidate pass bypasses minimum-lot stop risk")
             break
         risk_fit_count += int(risk_pass)
+        margin = item.get("minimum_lot_margin") if isinstance(item, dict) else None
+        measured_margin = (
+            margin.get("measured_free_margin_fraction") if isinstance(margin, dict) else None
+        )
+        margin_pass = bool(
+            isinstance(margin, dict)
+            and margin.get("account_currency") == "USD"
+            and margin.get("maximum_free_margin_fraction")
+            == VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION
+            and isinstance(measured_margin, (int, float))
+            and 0 <= measured_margin <= VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION
+        )
+        if not isinstance(margin, dict) or margin.get("pass") is not margin_pass:
+            problems.append("Vibe candidate minimum-lot margin is invalid")
+            break
+        if item.get("historical_screen_pass") is True and not margin_pass:
+            problems.append("Vibe candidate pass bypasses minimum-lot margin")
+            break
+        margin_fit_count += int(margin_pass)
 
     if problems:
         decision = "INVALID_ARTIFACT"
@@ -481,6 +505,8 @@ def _vibe_screen_statistics(screen: dict) -> tuple[dict, list[str]]:
         dsr_minimum=VIBE_MINIMUM_DSR_PROBABILITY,
         minimum_lot_risk_maximum_fraction=VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION,
         minimum_lot_risk_fit_count=risk_fit_count,
+        minimum_lot_margin_maximum_fraction=VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION,
+        minimum_lot_margin_fit_count=margin_fit_count,
     )
     return summary, problems
 
