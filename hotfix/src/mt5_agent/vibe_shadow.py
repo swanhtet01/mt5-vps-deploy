@@ -34,6 +34,7 @@ OBSERVATION_DAYS = 90
 MAX_FORWARD_TRADES_PER_EXPERIMENT = 60
 BOOTSTRAP_SAMPLES = 3000
 BOOTSTRAP_BLOCK_TRADES = 4
+MINIMUM_HISTORICAL_DSR_PROBABILITY = 0.95
 PAPER_FORWARD_ENROLLMENT_GATE = "historical_screen_pass_and_cumulative_bh_fdr"
 
 
@@ -311,6 +312,7 @@ def load_vibe_artifacts(
             direction not in {"long", "short"}
             or rules is None
             or result.get("candidate_stage") != "DISCOVERED"
+            or not isinstance(result.get("historical_screen_pass"), bool)
             or result.get("paper_candidate") is not False
             or result.get("live_eligible") is not False
             or result.get("broker_symbol") != candidate["broker_symbols"][0]
@@ -339,6 +341,37 @@ def load_vibe_artifacts(
         p_raw = _number(multiple.get("p_raw"), "multiple_testing.p_raw", minimum=0)
         if p_raw > 1:
             raise ValueError("multiple_testing.p_raw must be <= 1")
+        p_bonferroni = _number(
+            multiple.get("p_bonferroni"),
+            "multiple_testing.p_bonferroni",
+            minimum=0,
+        )
+        minimum_dsr = _number(
+            multiple.get("minimum_deflated_sharpe_probability"),
+            "multiple_testing.minimum_deflated_sharpe_probability",
+            minimum=0,
+        )
+        dsr_value = multiple.get("deflated_sharpe_probability")
+        dsr_probability = (
+            None
+            if dsr_value is None
+            else _number(
+                dsr_value,
+                "multiple_testing.deflated_sharpe_probability",
+                minimum=0,
+            )
+        )
+        if p_bonferroni > 1 or minimum_dsr != MINIMUM_HISTORICAL_DSR_PROBABILITY:
+            raise ValueError("candidate screen correction thresholds are invalid")
+        if dsr_probability is not None and dsr_probability > 1:
+            raise ValueError("multiple_testing.deflated_sharpe_probability must be <= 1")
+        if result["historical_screen_pass"] and (
+            not multiple.get("bh_fdr_q_0_05")
+            or p_bonferroni >= 0.05
+            or dsr_probability is None
+            or dsr_probability < minimum_dsr
+        ):
+            raise ValueError("candidate screen pass bypasses a multiple-testing gate")
         lot = _number(candidate["cost_stress"].get("minimum_lot_reference"), "minimum lot", minimum=0)
         slippage = _number(
             candidate["cost_stress"].get("slippage_points_round_trip"),

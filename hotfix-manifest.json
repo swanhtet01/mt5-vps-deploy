@@ -134,7 +134,7 @@
                   {
                       "source":  "hotfix/scripts/vibe_candidate_screen.py",
                       "destination":  "scripts/vibe_candidate_screen.py",
-                      "sha256":  "e9eaca99eda92b072a7b9bdcae91d9ceb97696a16eec91a85bd83c9b0ec78172"
+                      "sha256":  "a66f7d5646f90747a3d2713f7592369d3131101a80369f06f615514aeee5cfce"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/fdr_ledger.py",
@@ -169,7 +169,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_shadow.py",
                       "destination":  "src/mt5_agent/vibe_shadow.py",
-                      "sha256":  "fb88efce9f8aac6cc02385c3dc94c2bac994afa765a137c27c027902c3a24604"
+                      "sha256":  "f55fd9b642bd494c61b33b2b7f8fd437d728246b073714cd67dee34fdc83f1c9"
                   },
                   {
                       "source":  "notify.py",
