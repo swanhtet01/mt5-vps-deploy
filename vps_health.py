@@ -67,8 +67,10 @@ PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
 EDGE_REGISTRY_FILE = DATA_CACHE / "edge_registry.json"
 DEPLOY_ROOT = Path(r"C:\mt5-deploy")
 DEPLOYMENT_RECEIPT_FILE = DEPLOY_ROOT / "deployment_receipt.json"
+DEPLOYMENT_MANIFEST_FILE = DEPLOY_ROOT / "hotfix-manifest.json"
 DEPLOY_SUCCESS_FILE = DEPLOY_ROOT / "last_deploy_sha.txt"
 UPDATE_COMPLETION_FILE = DEPLOY_ROOT / "last_update_complete.txt"
+DEPLOYED_REPO_ROOT = Path(__file__).resolve().parents[1]
 VIBE_DENIED_TOOL_FRAGMENTS = (
     "order", "trading_", "connector", "mandate", "bash", "shell", "write", "background",
 )
@@ -846,7 +848,7 @@ def check_log_sizes():
 
 
 def check_deployment_receipt(now: datetime | None = None) -> dict:
-    """Prove the immutable commit recorded by the updater matches both success markers."""
+    """Prove the recorded commit and its manifest still match the installed files."""
     reference = now or datetime.now(tz=timezone.utc)
     receipt = read_json(DEPLOYMENT_RECEIPT_FILE) or {}
     result = {
@@ -856,6 +858,7 @@ def check_deployment_receipt(now: datetime | None = None) -> dict:
         "commit": receipt.get("commit"),
         "completed_at": receipt.get("completed_at"),
         "manifest_sha256": receipt.get("manifest_sha256"),
+        "manifest_artifact": str(DEPLOYMENT_MANIFEST_FILE),
         "hotfix_file_count": receipt.get("hotfix_file_count"),
         "live_authorization_changed": receipt.get("live_authorization_changed"),
     }
@@ -872,6 +875,48 @@ def check_deployment_receipt(now: datetime | None = None) -> dict:
         blockers.append("deployment receipt hotfix count is invalid")
     if receipt.get("live_authorization_changed") is not False:
         blockers.append("deployment receipt does not prove unchanged live authorization")
+
+    manifest: dict[str, Any] = {}
+    try:
+        manifest_bytes = DEPLOYMENT_MANIFEST_FILE.read_bytes()
+        manifest = json.loads(manifest_bytes.decode("utf-8-sig"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        blockers.append("verified deployment manifest is missing or invalid")
+    else:
+        if _file_sha256(DEPLOYMENT_MANIFEST_FILE) != manifest_sha:
+            blockers.append("deployment manifest hash does not match receipt")
+        entries = manifest.get("files") if manifest.get("schema_version") == 1 else None
+        if not isinstance(entries, list) or len(entries) != receipt.get("hotfix_file_count"):
+            blockers.append("deployment manifest file count does not match receipt")
+        else:
+            verified_files = 0
+            repo_root = DEPLOYED_REPO_ROOT.resolve()
+            for entry in entries:
+                destination = entry.get("destination") if isinstance(entry, dict) else None
+                expected = entry.get("sha256") if isinstance(entry, dict) else None
+                relative = (
+                    Path(*str(destination).replace("\\", "/").split("/"))
+                    if destination else None
+                )
+                if (
+                    relative is None
+                    or relative.is_absolute()
+                    or ".." in relative.parts
+                    or any(":" in part for part in relative.parts)
+                    or not isinstance(expected, str)
+                    or not re.fullmatch(r"[0-9a-fA-F]{64}", expected)
+                ):
+                    blockers.append("deployment manifest contains an unsafe file entry")
+                    break
+                installed = (repo_root / relative).resolve()
+                if repo_root not in installed.parents or not installed.is_file():
+                    blockers.append(f"deployed hotfix is missing: {destination}")
+                    break
+                if _file_sha256(installed) != expected.lower():
+                    blockers.append(f"deployed hotfix hash mismatch: {destination}")
+                    break
+                verified_files += 1
+            result["verified_hotfix_files"] = verified_files
 
     completed_at = receipt.get("completed_at")
     completed_age = _state_age_hours(completed_at, reference)
