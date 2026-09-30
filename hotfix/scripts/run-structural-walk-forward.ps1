@@ -56,9 +56,13 @@ try {
         exit 1
     }
     $process.WaitForExit()
-    if ($process.ExitCode -ne 0) {
-        Write-State 'failed' "structural research exited $($process.ExitCode)"
-        exit $process.ExitCode
+    $process.Refresh()
+    # Windows PowerShell can expose a null ExitCode for a redirected child even after it
+    # has exited. The required report artifact below remains the authoritative success proof.
+    $exitCode = $process.ExitCode
+    if ($null -ne $exitCode -and $exitCode -ne 0) {
+        Write-State 'failed' "structural research exited $exitCode"
+        exit $exitCode
     }
     if (-not (Test-Path -LiteralPath $Output)) {
         Write-State 'failed' 'structural research did not produce its report artifact'
