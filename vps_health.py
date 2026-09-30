@@ -325,18 +325,38 @@ def check_structural_scheduler():
             if 88001 <= magic <= 88009:
                 enabled.append(magic)
 
+    registry_eligible: set[int] = set()
+    registry_problem: str | None = None
+    try:
+        registry = EdgeRegistry(EDGE_REGISTRY_FILE)
+        registry_eligible = {
+            int(edge.magic) for edge in registry.live()
+            if edge.promotable and 88001 <= int(edge.magic) <= 88009
+        }
+    except (OSError, ValueError) as exc:
+        registry_problem = str(exc)
+    effective = sorted(set(enabled) & registry_eligible)
+    armed = live_flag and scheduler_flag and not force_paper_only
+    mode = "FORCED_PAPER" if force_paper_only else (
+        "LIVE" if armed and effective else ("ARMED_NO_ELIGIBLE_EDGE" if armed else "PAPER")
+    )
+
     result = {
         "status": "OK",
-        "mode": "FORCED_PAPER" if force_paper_only else ("LIVE" if live_flag and scheduler_flag else "PAPER"),
+        "mode": mode,
         "allowlisted_magics": sorted(set(enabled)),
+        "registry_eligible_magics": sorted(registry_eligible),
+        "effective_allowlisted_magics": effective,
         "gold_live_flag": live_flag,
         "scheduler_live_flag": scheduler_flag,
         "force_paper_only": force_paper_only,
     }
     if not force_paper_only and live_flag != scheduler_flag:
         result.update(status="WARN", reason="structural live flags are only partially armed")
-    elif not force_paper_only and live_flag and scheduler_flag and not enabled:
-        result.update(status="WARN", reason="scheduler is armed but no strategy magic is allowlisted")
+    elif armed and not effective:
+        result.update(status="WARN", reason="scheduler is armed but no validated registry edge is allowlisted")
+    elif registry_problem:
+        result.update(status="WARN", reason=f"structural registry could not be read: {registry_problem}")
 
     if not SCHEDULER_EVENTS.exists():
         result.update(status="WARN", reason="structural scheduler has not written an event heartbeat")
