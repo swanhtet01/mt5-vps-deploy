@@ -174,10 +174,15 @@ class EdgeRegistry:
         if rec is None:
             raise KeyError(key)
         target = Stage(to_stage)  # raises if invalid
-        if target is Stage.LIVE and not rec.promotable:
-            raise PromotionError(
-                f"{key} cannot go LIVE: "
-                + "; ".join(rec.validation_obj().blocking_reasons()))
+        if target is Stage.LIVE:
+            if rec.stage not in _PROMOTABLE_FROM:
+                raise PromotionError(
+                    f"{key} cannot go LIVE from {rec.stage}; it must first complete PAPER validation"
+                )
+            if not rec.promotable:
+                raise PromotionError(
+                    f"{key} cannot go LIVE: "
+                    + "; ".join(rec.validation_obj().blocking_reasons()))
         rec.stage = target.value
         return rec
 

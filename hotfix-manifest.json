@@ -114,7 +114,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/edge_registry.py",
                       "destination":  "src/mt5_agent/edge_registry.py",
-                      "sha256":  "4b6928538656a6e2e2c62bcd002e45b2f58b1478d6c3205b239af33143dca7ed"
+                      "sha256":  "aa79e17bf2fd255e683f625e322872b55e9e94a95172b74365eeef798988c5a9"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/portfolio_budget.py",
