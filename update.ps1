@@ -315,7 +315,9 @@ $adAction = New-HiddenTaskAction -Name 'auto-deploy' -Body $adBody
 # self-update is a no-op. Every other task here does work that does not need elevation;
 # this one cannot do its job without it.
 schtasks /create /tn 'MT5-AutoDeploy' /tr $adAction /sc minute /mo 15 /ru SYSTEM /rl HIGHEST /f | Out-Null
-Set-MT5TaskReliability -TaskName 'MT5-AutoDeploy' -ExecutionMinutes 12
+# A first pinned Vibe install clones and builds an isolated sidecar. Keep a bounded but
+# realistic window so Task Scheduler cannot terminate that atomic deployment halfway through.
+Set-MT5TaskReliability -TaskName 'MT5-AutoDeploy' -ExecutionMinutes 45
 Set-Content "$deploy\last_deploy_sha.txt" $deployRef -NoNewline
 Write-Host '  [5] MT5-AutoDeploy scheduled (verified hotfix commits every 15 min)' -ForegroundColor Green
 
