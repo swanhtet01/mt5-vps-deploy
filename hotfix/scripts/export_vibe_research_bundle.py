@@ -51,7 +51,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-root", type=Path, default=Path("research/vibe_exports"))
     parser.add_argument("--symbols", nargs="*")
     parser.add_argument("--timeframe", default="H1")
-    parser.add_argument("--bars", type=int, default=5000)
+    parser.add_argument("--bars", type=int, default=30000)
     parser.add_argument("--history-days", type=int, default=365)
     parser.add_argument("--max-last-bar-age-hours", type=float, default=80.0)
     return parser.parse_args()
@@ -100,8 +100,8 @@ def main() -> int:
     symbols = list(dict.fromkeys(args.symbols or config.symbols))
     if not symbols:
         raise SystemExit("No symbols configured for research export")
-    if args.bars < 100 or args.history_days < 1:
-        raise SystemExit("--bars must be >= 100 and --history-days must be >= 1")
+    if not 100 <= args.bars <= 50000 or args.history_days < 1:
+        raise SystemExit("--bars must be 100..50000 and --history-days must be >= 1")
 
     now = datetime.now(tz=timezone.utc)
     bundle_name = now.strftime("%Y%m%dT%H%M%SZ")
