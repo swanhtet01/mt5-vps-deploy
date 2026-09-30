@@ -36,6 +36,7 @@ from mt5_agent.paper_protections import (
     MAX_OPEN_PAPER_POSITIONS,
     MAX_OPEN_PAPER_POSITIONS_PER_SYMBOL,
 )
+from mt5_agent.portfolio_budget import CLUSTER_CAP
 from mt5_agent.structural_challengers import paper_challenger_status
 
 # Use the shared path resolver so this runs on the VPS (C:\trading-agent) AND the dev PC,
@@ -70,6 +71,8 @@ STRUCTURAL_CANONICAL_SYMBOLS = frozenset({
     "UK100Cash", "AUDJPY", "GBPJPY", "EURUSD", "GBPUSD", "GER40Cash", "JP225Cash",
 })
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
+PORTFOLIO_BUDGET_FILE = DATA_CACHE / "portfolio_budget.json"
+PORTFOLIO_BUDGET_MAX_AGE_HOURS = 2.5
 EDGE_REGISTRY_FILE = DATA_CACHE / "edge_registry.json"
 DEPLOY_ROOT = Path(r"C:\mt5-deploy")
 DEPLOYMENT_RECEIPT_FILE = DEPLOY_ROOT / "deployment_receipt.json"
@@ -1083,6 +1086,62 @@ def check_profit_funded_scaling(now: datetime | None = None) -> dict:
     return result
 
 
+def check_portfolio_budget(now: datetime | None = None) -> dict:
+    """Verify the hourly shared exposure coordinator is present, bounded, and fresh."""
+    reference = now or datetime.now(tz=timezone.utc)
+    result = {"status": "OK", "artifact": str(PORTFOLIO_BUDGET_FILE)}
+    if not PORTFOLIO_BUDGET_FILE.exists():
+        return {**result, "status": "WARN", "reason": "portfolio budget artifact is missing"}
+    try:
+        age_hours = max(reference.timestamp() - PORTFOLIO_BUDGET_FILE.stat().st_mtime, 0.0) / 3600.0
+        result["age_hours"] = round(age_hours, 2)
+        result["max_age_hours"] = PORTFOLIO_BUDGET_MAX_AGE_HOURS
+        payload = read_json(PORTFOLIO_BUDGET_FILE, default={})
+        if not isinstance(payload, dict):
+            raise ValueError("payload is not an object")
+        cluster_cap = payload.get("cluster_cap")
+        budget = payload.get("budget")
+        clusters = payload.get("clusters")
+        if cluster_cap != CLUSTER_CAP:
+            raise ValueError("cluster cap does not match the deployed coordinator")
+        if not isinstance(budget, dict) or not isinstance(clusters, dict):
+            raise ValueError("budget or clusters is malformed")
+        invalid: list[str] = []
+        throttled: list[str] = []
+        for magic, multiplier in budget.items():
+            try:
+                numeric_multiplier = float(multiplier)
+                valid = int(magic) > 0 and 0.0 <= numeric_multiplier <= 1.0
+            except (TypeError, ValueError):
+                valid = False
+            if not valid:
+                invalid.append(str(magic))
+            elif numeric_multiplier < 1.0:
+                throttled.append(str(magic))
+        malformed_clusters = [
+            str(name) for name, members in clusters.items()
+            if not isinstance(members, list) or len(members) < 2
+            or len({str(member) for member in members}) != len(members)
+        ]
+        result.update(
+            budget_magic_count=len(budget), cluster_count=len(clusters),
+            throttled_magics=sorted(throttled),
+        )
+        problems: list[str] = []
+        if age_hours > PORTFOLIO_BUDGET_MAX_AGE_HOURS:
+            problems.append("portfolio budget artifact is stale")
+        if invalid:
+            problems.append("portfolio budget has invalid multipliers")
+        if malformed_clusters:
+            problems.append("portfolio budget has malformed correlation clusters")
+        if problems:
+            result.update(status="WARN", reason="; ".join(problems), invalid_magics=invalid,
+                          malformed_clusters=malformed_clusters)
+    except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+        result.update(status="WARN", reason=f"portfolio budget artifact is invalid: {exc}")
+    return result
+
+
 def check_alerting():
     """Can this monitor actually reach anyone?
 
@@ -1176,6 +1235,7 @@ def main():
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
+        "portfolio_budget": check_portfolio_budget(),
         "edge_registry": check_edge_registry(),
         "deployment_receipt": check_deployment_receipt(),
         "alerting": check_alerting(),
