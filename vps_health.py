@@ -894,11 +894,15 @@ def check_deployment_receipt(now: datetime | None = None) -> dict:
             for entry in entries:
                 destination = entry.get("destination") if isinstance(entry, dict) else None
                 expected = entry.get("sha256") if isinstance(entry, dict) else None
-                relative = Path(str(destination).replace("/", "\\")) if destination else None
+                relative = (
+                    Path(*str(destination).replace("\\", "/").split("/"))
+                    if destination else None
+                )
                 if (
                     relative is None
                     or relative.is_absolute()
                     or ".." in relative.parts
+                    or any(":" in part for part in relative.parts)
                     or not isinstance(expected, str)
                     or not re.fullmatch(r"[0-9a-fA-F]{64}", expected)
                 ):
