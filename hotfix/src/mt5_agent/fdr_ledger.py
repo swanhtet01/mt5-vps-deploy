@@ -37,7 +37,10 @@ we throw at it, the harder (correctly) it is to fluke a survivor.
 from __future__ import annotations
 
 import json
+import os
 import random
+import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
@@ -130,6 +133,38 @@ class FDRLedger:
             except (json.JSONDecodeError, KeyError):
                 continue  # tolerate a torn last line, never crash on read
 
+    @contextmanager
+    def _write_lock(self, timeout_seconds: float = 15.0):
+        """Serialize append/reload cycles across scheduled research processes."""
+        lock_path = self.path.with_name(f"{self.path.name}.lock")
+        deadline = time.monotonic() + timeout_seconds
+        acquired = False
+        while not acquired:
+            try:
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                with os.fdopen(fd, "w", encoding="utf-8") as lock_file:
+                    lock_file.write(str(os.getpid()))
+                acquired = True
+            except FileExistsError:
+                try:
+                    stale = time.time() - lock_path.stat().st_mtime > timeout_seconds
+                    if stale:
+                        lock_path.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    pass
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(f"timed out waiting for FDR ledger lock: {lock_path}")
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            if acquired:
+                try:
+                    lock_path.unlink()
+                except OSError:
+                    pass
+
     def record(self, family: str, spec_id: str, p_value: float,
                t_stat: float | None = None, n: int | None = None, **meta) -> Trial:
         """Append one graded hypothesis. Unknown families are rejected by construction."""
@@ -142,13 +177,17 @@ class FDRLedger:
                       t_stat=t_stat, n=n,
                       ts=datetime.now(tz=timezone.utc).isoformat(), meta=dict(meta))
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        with self.path.open("a", encoding="utf-8") as fh:
-            fh.write(trial.to_json() + "\n")
-        self._trials.append(trial)
+        with self._write_lock():
+            # A second task may have appended since this object was constructed.
+            self._load()
+            with self.path.open("a", encoding="utf-8") as fh:
+                fh.write(trial.to_json() + "\n")
+            self._trials.append(trial)
         return trial
 
     # ---- queries ----
     def family_trials(self, family: str) -> list[Trial]:
+        self._load()
         return [t for t in self._trials if t.family == family]
 
     def bh_rejected(self, family: str, q: float = 0.05) -> set[str]:
@@ -158,6 +197,7 @@ class FDRLedger:
         Requiring the latest trial to survive also prevents a stale best-ever p-value from
         keeping a decayed strategy eligible forever.
         """
+        self._load()
         trials = [trial for trial in self._trials if trial.family == family]
         if not trials:
             return set()
@@ -179,7 +219,7 @@ class FDRLedger:
 
     def family_denominator(self, family: str) -> int:
         """How many trials have been graded in this family, including re-tests."""
-        return sum(1 for trial in self._trials if trial.family == family)
+        return len(self.family_trials(family))
 
     def summary(self) -> dict:
         out = {}
