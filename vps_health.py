@@ -32,6 +32,7 @@ import MetaTrader5 as mt5
 from mt5_agent.mt5_execution import persistent_user_flag_enabled
 from mt5_agent.profit_funded_scaling import SCHEMA as PROFIT_SCALING_SCHEMA
 from mt5_agent.edge_registry import EdgeRegistry
+from mt5_agent.structural_challengers import paper_challenger_status
 
 # Use the shared path resolver so this runs on the VPS (C:\trading-agent) AND the dev PC,
 # instead of the old hardcoded OneDrive paths (which broke health/news/blacklist on the VPS).
@@ -436,6 +437,24 @@ def check_structural_research(now: datetime | None = None) -> dict:
     if blockers:
         result.update(status="WARN", reason="; ".join(blockers), blockers=blockers)
     return result
+
+
+def check_structural_paper_challengers(now: datetime | None = None) -> dict:
+    """Expose receipt-derived paper challengers without making zero discoveries unhealthy."""
+    try:
+        return paper_challenger_status(
+            STRUCTURAL_RESEARCH_STATE,
+            now=now,
+            max_age_days=int(STRUCTURAL_RESEARCH_MAX_AGE_HOURS / 24),
+        )
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return {
+            "status": "WARN",
+            "mode": "paper_only",
+            "paper_challenger_count": 0,
+            "receipt": str(STRUCTURAL_RESEARCH_STATE),
+            "reason": f"structural paper challenger receipt is invalid: {exc}",
+        }
 
 
 def _file_sha256(path: Path) -> str:
@@ -1115,6 +1134,7 @@ def main():
         "scheduled_tasks": check_scheduled_tasks(),
         "structural_scheduler": check_structural_scheduler(),
         "structural_research": check_structural_research(),
+        "structural_paper_challengers": check_structural_paper_challengers(),
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),

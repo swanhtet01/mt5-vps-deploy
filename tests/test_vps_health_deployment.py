@@ -254,3 +254,27 @@ def test_structural_research_health_rejects_hash_valid_diagnostic_scope(monkeypa
 
     assert result["status"] == "WARN"
     assert "not a canonical" in result["reason"]
+
+
+def test_structural_paper_challenger_health_reports_zero_without_warning(monkeypatch, tmp_path: Path):
+    state = tmp_path / "structural_walk_forward_state.json"
+    report = tmp_path / "report.json"
+    report.write_text(json.dumps({
+        "mode": "read_only_research", "orders_sent": 0,
+        "research_scope": {"symbols": sorted(vps_health.STRUCTURAL_CANONICAL_SYMBOLS), "canonical_full_universe": True,
+                           "paper_eligibility_allowed": True, "fdr_family": "structural_hourweekday"},
+        "paper_candidates": [],
+    }), encoding="utf-8")
+    state.write_text(json.dumps({
+        "schema": "mt5.structural_walk_forward_state.v1", "status": "completed",
+        "finished_at_utc": "2026-09-30T12:00:00Z", "output": str(report),
+        "report_sha256": vps_health._file_sha256(report), "order_authority": False,
+    }), encoding="utf-8")
+    monkeypatch.setattr(vps_health, "STRUCTURAL_RESEARCH_STATE", state)
+
+    result = vps_health.check_structural_paper_challengers(
+        datetime(2026, 9, 30, 13, tzinfo=timezone.utc)
+    )
+
+    assert result["status"] == "OK"
+    assert result["paper_challenger_count"] == 0
