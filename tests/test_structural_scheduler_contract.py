@@ -12,3 +12,8 @@ def test_paper_only_candidates_return_before_live_order_paths():
     assert live_guard in source
     assert source.index(paper_guard) < source.index(live_guard)
 
+
+def test_scheduler_uses_only_receipt_bound_paper_challengers():
+    source = (ROOT / "hotfix" / "scripts" / "structural_scheduler.py").read_text(encoding="utf-8")
+    assert "receipt_paper_specs(STRUCTURAL_RESEARCH_RECEIPT_FILE)" in source
+    assert "specs.update(receipt_paper_specs" in source

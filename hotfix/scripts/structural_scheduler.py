@@ -29,6 +29,7 @@ from typing import Iterable, Mapping
 import MetaTrader5 as mt5
 
 from mt5_agent.edge_registry import EdgeRegistry
+from mt5_agent.structural_challengers import paper_specs as receipt_paper_specs
 from mt5_agent.mt5_execution import (
     FeedClockProvenance,
     feed_clock_provenance,
@@ -51,6 +52,7 @@ STATE_FILE = DATA_CACHE / "structural_scheduler_state.json"
 ALLOWLIST_FILE = DATA_CACHE / "structural_live_allowlist.json"
 REGISTRY_FILE = DATA_CACHE / "edge_registry.json"
 PAPER_FORWARD_STATE_FILE = DATA_CACHE / "structural_paper_forward_state.json"
+STRUCTURAL_RESEARCH_RECEIPT_FILE = DATA_CACHE / "structural_walk_forward_state.json"
 EVENT_FILE = PAPER_ROOT / "analytics" / "structural-scheduler.jsonl"
 STRUCTURAL_MAGICS = set(range(88001, 88010))
 ENTRY_WINDOW_MINUTES = 10
@@ -121,6 +123,12 @@ def structural_specs() -> dict[str, dict]:
         "description": "GBPJPY Wednesday 23:00-Thursday 00:00 feed-time walk-forward candidate",
         "source": "reports/structural-walk-forward-2026-08-03-refresh.json",
     }
+    # Fresh research may add challengers, but never changes legacy/live definitions. The adapter
+    # accepts only a completed, hash-bound canonical no-order receipt and emits paper-only specs.
+    try:
+        specs.update(receipt_paper_specs(STRUCTURAL_RESEARCH_RECEIPT_FILE))
+    except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
+        pass
     return specs
 
 
