@@ -13,6 +13,7 @@ def test_structural_runner_is_bounded_read_only_and_records_state():
     assert "WaitForExit" in source
     assert "Stop-Process" in source
     assert "structural_walk_forward_state.json" in source
+    assert "report_sha256" in source
     assert "order_authority = $false" in source
     assert "order_send" not in source
 
