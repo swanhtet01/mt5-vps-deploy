@@ -34,6 +34,7 @@ OBSERVATION_DAYS = 90
 MAX_FORWARD_TRADES_PER_EXPERIMENT = 60
 BOOTSTRAP_SAMPLES = 3000
 BOOTSTRAP_BLOCK_TRADES = 4
+PAPER_FORWARD_ENROLLMENT_GATE = "historical_screen_pass_and_cumulative_bh_fdr"
 
 
 @dataclass(frozen=True)
@@ -417,6 +418,33 @@ def register_screen_trials(
     }
 
 
+def paper_forward_enrollments(
+    experiments: tuple[dict[str, Any], ...] | list[dict[str, Any]],
+    discoveries: Mapping[str, bool],
+) -> tuple[dict[str, Any], ...]:
+    """Authorize only statistically screened specs for quote-only observation."""
+    enrolled: list[dict[str, Any]] = []
+    for experiment in experiments:
+        key = experiment.get("experiment_key")
+        if not isinstance(key, str):
+            continue
+        if experiment.get("historical_screen_pass") is not True:
+            continue
+        if discoveries.get(key) is not True:
+            continue
+        enrolled.append(
+            {
+                **experiment,
+                "paper_forward_enrolled": True,
+                "paper_forward_enrollment_gate": PAPER_FORWARD_ENROLLMENT_GATE,
+                "paper_only": True,
+                "order_authority": False,
+                "live_eligible": False,
+            }
+        )
+    return tuple(enrolled)
+
+
 def empty_state() -> dict[str, Any]:
     return {
         "schema": STATE_SCHEMA,
@@ -530,10 +558,11 @@ def merge_experiment_catalog(
 def entry_eligible_experiments(
     catalog: list[dict[str, Any]],
     closed_trades: list[dict[str, Any]],
+    discoveries: Mapping[str, bool],
     *,
     now: datetime | None = None,
 ) -> list[dict[str, Any]]:
-    """Return preregistered specs still inside their fixed observation budget."""
+    """Return gated specs still significant and inside their observation budget."""
     reference = (now or datetime.now(tz=timezone.utc)).astimezone(timezone.utc)
     counts: dict[str, int] = {}
     for trade in closed_trades:
@@ -542,6 +571,15 @@ def entry_eligible_experiments(
             counts[key] = counts.get(key, 0) + 1
     eligible: list[dict[str, Any]] = []
     for experiment in catalog:
+        key = experiment.get("experiment_key")
+        if not isinstance(key, str):
+            continue
+        if experiment.get("paper_forward_enrolled") is not True:
+            continue
+        if experiment.get("historical_screen_pass") is not True:
+            continue
+        if discoveries.get(key) is not True:
+            continue
         try:
             observation_end = _utc_timestamp(
                 experiment.get("observation_end_host_utc"),
@@ -551,7 +589,7 @@ def entry_eligible_experiments(
             continue
         if (
             reference <= observation_end
-            and counts.get(experiment["experiment_key"], 0) < MAX_FORWARD_TRADES_PER_EXPERIMENT
+            and counts.get(key, 0) < MAX_FORWARD_TRADES_PER_EXPERIMENT
         ):
             eligible.append(experiment)
     return eligible

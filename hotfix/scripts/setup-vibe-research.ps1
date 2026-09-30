@@ -8,7 +8,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AuditedCommit = "652917e74e2b2e1f767ef596623bae7f098a53c4"
+$AuditedCommit = "cc54832cb50de29d14bb10097b18e08f0a843650"
 $Repository = "https://github.com/HKUDS/Vibe-Trading.git"
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 $ProjectPython = @(

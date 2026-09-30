@@ -9,8 +9,9 @@ This strategy trades MORE FREQUENTLY than the structural weekly edges, providing
 active intraday participation without touching the validated structural positions.
 
 Safety guardrails:
-  - Uses MT5_GOLD_DRIFT_LIVE env flag (same as structural edges)
-  - Daily loss limit per magic: $20-$35 depending on symbol
+  - Requires both the global MT5_GOLD_DRIFT_LIVE flag and a separate
+    MT5_INTRADAY_MR_LIVE authorization
+  - Daily loss limit per magic: $7.50-$10 depending on symbol
   - Max 1 open position per magic at a time
   - Hard SL per spec; TP tighter than structural (these are mean-rev fades, not trend trades)
   - Regime gate: RSI extreme + ATR in normal band + session filter
@@ -44,29 +45,30 @@ from paths import (  # noqa: E402
 )
 
 LIVE_ENV_FLAG = "MT5_GOLD_DRIFT_LIVE"
+MR_LIVE_ENV_FLAG = "MT5_INTRADAY_MR_LIVE"
 LOG_DIR = _PAPER_ROOT / "intraday-mr"
 
 SIGNALS = [
-    dict(symbol="GOLD",   magic=88011, side_bias="both", max_lot=0.03,
-         sl_usd=45.0, tp_usd=30.0, daily_loss_limit=-30.0,
+    dict(symbol="GOLD",   magic=88011, side_bias="both", max_lot=0.01,
+         sl_usd=15.0, tp_usd=10.0, daily_loss_limit=-10.0,
          rsi_buy=35, rsi_sell=65, min_atr_pct=0.03, max_atr_pct=1.2,
-         description="GOLD H1 RSI mean-reversion 0.03 lot"),
-    dict(symbol="USDJPY", magic=88012, side_bias="both", max_lot=0.05,
-         sl_usd=37.5, tp_usd=25.0, daily_loss_limit=-25.0,
+         description="GOLD H1 RSI mean-reversion 0.01 lot"),
+    dict(symbol="USDJPY", magic=88012, side_bias="both", max_lot=0.01,
+         sl_usd=7.5, tp_usd=5.0, daily_loss_limit=-7.5,
          rsi_buy=35, rsi_sell=65, min_atr_pct=0.02, max_atr_pct=0.8,
-         description="USDJPY H1 RSI mean-reversion 0.05 lot"),
+         description="USDJPY H1 RSI mean-reversion 0.01 lot"),
     # EURUSD: most liquid major pair — tight spread, clean RSI signals during London/NY
-    # 0.05 lot; each pip ~$0.50; SL $37.50 = 75 pips; TP $25 = 50 pips (quick mean-revert)
-    dict(symbol="EURUSD", magic=88013, side_bias="both", max_lot=0.05,
-         sl_usd=37.5, tp_usd=25.0, daily_loss_limit=-25.0,
+    # Fixed at broker-minimum sizing until independent evidence passes.
+    dict(symbol="EURUSD", magic=88013, side_bias="both", max_lot=0.01,
+         sl_usd=7.5, tp_usd=5.0, daily_loss_limit=-7.5,
          rsi_buy=33, rsi_sell=67, min_atr_pct=0.01, max_atr_pct=0.5,
-         description="EURUSD H1 RSI mean-reversion 0.05 lot"),
+         description="EURUSD H1 RSI mean-reversion 0.01 lot"),
     # GBPUSD: volatile major pair — bigger ATR tolerance; use 0.03 lot to keep risk similar
-    # 0.03 lot; each pip ~$0.30; SL $45 = 150 pips; TP $30 = 100 pips
-    dict(symbol="GBPUSD", magic=88014, side_bias="both", max_lot=0.03,
-         sl_usd=45.0, tp_usd=30.0, daily_loss_limit=-25.0,
+    # Fixed at broker-minimum sizing until independent evidence passes.
+    dict(symbol="GBPUSD", magic=88014, side_bias="both", max_lot=0.01,
+         sl_usd=15.0, tp_usd=10.0, daily_loss_limit=-10.0,
          rsi_buy=33, rsi_sell=67, min_atr_pct=0.02, max_atr_pct=0.7,
-         description="GBPUSD H1 RSI mean-reversion 0.03 lot"),
+         description="GBPUSD H1 RSI mean-reversion 0.01 lot"),
 ]
 
 LONDON_OPEN_UTC  = (7,   0)
@@ -75,6 +77,7 @@ NY_OPEN_UTC      = (13,  0)
 NY_CLOSE_UTC     = (17, 30)
 
 MAX_HOLD_HOURS = 2
+MAX_STOP_RISK_EQUITY_FRACTION = 0.02
 
 
 def _log(name: str, event: dict) -> None:
@@ -86,7 +89,10 @@ def _log(name: str, event: dict) -> None:
 
 
 def _is_live() -> bool:
-    return persistent_user_flag_enabled(LIVE_ENV_FLAG)
+    return (
+        persistent_user_flag_enabled(LIVE_ENV_FLAG)
+        and persistent_user_flag_enabled(MR_LIVE_ENV_FLAG)
+    )
 
 
 def _in_session(utc_now: datetime) -> bool:
@@ -243,11 +249,56 @@ def run_symbol(spec: dict, utc_now: datetime) -> None:
     }
 
     if not live:
-        _log(name, {**base, "event": "paper_enter", "reason": f"env {LIVE_ENV_FLAG}=1 not set"})
+        _log(
+            name,
+            {
+                **base,
+                "event": "paper_enter",
+                "reason": (
+                    f"both {LIVE_ENV_FLAG}=1 and {MR_LIVE_ENV_FLAG}=1 are required"
+                ),
+            },
+        )
         return
 
-    volume = max(spec["max_lot"], float(si.volume_min))
-    volume = min(volume, float(si.volume_max))
+    account = mt5.account_info()
+    if account is None or float(account.equity) <= 0:
+        _log(name, {**base, "event": "entry_skip", "reason": "account equity unavailable"})
+        return
+    risk_budget = float(account.equity) * MAX_STOP_RISK_EQUITY_FRACTION
+    if float(spec["sl_usd"]) > risk_budget:
+        _log(
+            name,
+            {
+                **base,
+                "event": "entry_skip",
+                "reason": (
+                    f"hard stop ${float(spec['sl_usd']):.2f} exceeds "
+                    f"{MAX_STOP_RISK_EQUITY_FRACTION:.0%} equity budget ${risk_budget:.2f}"
+                ),
+                "account_equity": float(account.equity),
+            },
+        )
+        return
+
+    volume = normalize_volume(
+        float(spec["max_lot"]),
+        minimum=float(si.volume_min),
+        maximum=float(si.volume_max),
+        step=float(si.volume_step),
+    )
+    if volume <= 0:
+        _log(
+            name,
+            {
+                **base,
+                "event": "entry_skip",
+                "reason": "broker minimum volume exceeds configured strategy cap",
+                "broker_volume_min": float(si.volume_min),
+                "configured_max_lot": float(spec["max_lot"]),
+            },
+        )
+        return
 
     price = tick.ask if side == "long" else tick.bid
     sl_dist = spec["sl_usd"] * si.trade_tick_size / (si.trade_tick_value * volume)

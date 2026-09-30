@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Any, Mapping
 
 
-AUDITED_VIBE_COMMIT = "652917e74e2b2e1f767ef596623bae7f098a53c4"
+AUDITED_VIBE_COMMIT = "cc54832cb50de29d14bb10097b18e08f0a843650"
 HANDOFF_SCHEMA = "mt5.vibe_candidate_handoff.v1"
 PROPOSAL_SCHEMA = "mt5.vibe_candidate_proposals.v1"
 REQUIRED_VALIDATION_GATES = (
