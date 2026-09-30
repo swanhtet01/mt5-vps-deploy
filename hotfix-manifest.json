@@ -4,7 +4,7 @@
                   {
                       "source":  "vps_health.py",
                       "destination":  "scripts/vps_health.py",
-                      "sha256":  "8bea77fbf739160bf7abb870bd887c219782f2b9cd7d5060e27818f17df04e80"
+                      "sha256":  "14cfd5b41e47571f9b4e449605bb956ae4c7c87ba622e922412dbff433b4adc6"
                   },
                   {
                       "source":  "hotfix/scripts/paths.py",
@@ -134,7 +134,7 @@
                   {
                       "source":  "hotfix/scripts/vibe_candidate_screen.py",
                       "destination":  "scripts/vibe_candidate_screen.py",
-                      "sha256":  "c0cf76f02c66328d321e47e723edf87d42857eb85a0b38c64b14700d18610211"
+                      "sha256":  "eefbca4e58507e494f7a351862b995dfa9c83671643a004c68b2d8be22162a0e"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/fdr_ledger.py",
@@ -169,7 +169,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/vibe_shadow.py",
                       "destination":  "src/mt5_agent/vibe_shadow.py",
-                      "sha256":  "aefedd7353cafdaf36cfa0be48fcd813e48d71a0f6eb437188c9b89b125c7297"
+                      "sha256":  "1e9aef23ffc3313bb469f092a8987d070b599a2a4023158e8467e6297e129370"
                   },
                   {
                       "source":  "notify.py",
