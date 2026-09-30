@@ -125,3 +125,23 @@ def test_structural_health_does_not_report_live_without_registry_eligible_edge(m
     assert result["mode"] == "ARMED_NO_ELIGIBLE_EDGE"
     assert result["effective_allowlisted_magics"] == []
     assert result["status"] == "WARN"
+
+
+def test_structural_research_health_requires_fresh_completed_bounded_artifact(monkeypatch, tmp_path: Path):
+    state = tmp_path / "structural_walk_forward_state.json"
+    monkeypatch.setattr(vps_health, "__file__", str(tmp_path / "vps_health.py"))
+    report_root = tmp_path / "reports"
+    report_root.mkdir(parents=True, exist_ok=True)
+    report = report_root / "health-test-structural.json"
+    report.write_text("{}", encoding="utf-8")
+    state.write_text(json.dumps({
+        "schema": "mt5.structural_walk_forward_state.v1", "status": "completed",
+        "finished_at_utc": "2026-09-30T12:00:00Z", "output": str(report),
+        "order_authority": False,
+    }), encoding="utf-8")
+    monkeypatch.setattr(vps_health, "STRUCTURAL_RESEARCH_STATE", state)
+
+    result = vps_health.check_structural_research(datetime(2026, 9, 30, 13, tzinfo=timezone.utc))
+
+    assert result["status"] == "OK"
+    assert result["age_hours"] == 1.0

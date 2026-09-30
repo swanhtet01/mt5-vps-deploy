@@ -57,6 +57,8 @@ VIBE_MINIMUM_DSR_PROBABILITY = 0.95
 VIBE_MAXIMUM_PBO = 0.20
 VIBE_MAXIMUM_MINIMUM_LOT_STOP_RISK_FRACTION = 0.02
 VIBE_MAXIMUM_MINIMUM_LOT_MARGIN_FREE_FRACTION = 0.25
+STRUCTURAL_RESEARCH_STATE = DATA_CACHE / "structural_walk_forward_state.json"
+STRUCTURAL_RESEARCH_MAX_AGE_HOURS = 8.0 * 24.0
 PROFIT_SCALING_FILE = DATA_CACHE / "position_sizing.json"
 EDGE_REGISTRY_FILE = DATA_CACHE / "edge_registry.json"
 DEPLOY_ROOT = Path(r"C:\mt5-deploy")
@@ -374,6 +376,38 @@ def check_structural_scheduler():
             result.update(status="WARN", reason="structural scheduler event heartbeat is stale")
     except OSError as exc:
         result.update(status="WARN", reason=f"cannot stat structural scheduler events: {exc}")
+    return result
+
+
+def check_structural_research(now: datetime | None = None) -> dict:
+    """Validate the bounded weekly structural scan's outcome and report artifact."""
+    reference = now or datetime.now(tz=timezone.utc)
+    result = {"status": "OK", "artifact": str(STRUCTURAL_RESEARCH_STATE)}
+    state = read_json(STRUCTURAL_RESEARCH_STATE, default={})
+    blockers: list[str] = []
+    if state.get("schema") != "mt5.structural_walk_forward_state.v1":
+        blockers.append("structural research state is missing or invalid")
+    if state.get("order_authority") is not False:
+        blockers.append("structural research state grants order authority")
+    status = state.get("status")
+    result["last_status"] = status
+    if status != "completed":
+        blockers.append(f"structural research last status is {status or 'missing'}")
+    age_hours = _state_age_hours(state.get("finished_at_utc"), reference)
+    if age_hours is None:
+        blockers.append("structural research completion timestamp is invalid")
+    else:
+        result["age_hours"] = round(age_hours, 1)
+        if age_hours > STRUCTURAL_RESEARCH_MAX_AGE_HOURS:
+            blockers.append("structural research is older than 8 days")
+    output = Path(str(state.get("output") or ""))
+    reports_root = Path(__file__).resolve().parent / "reports"
+    if not output.is_file() or not _within(output, reports_root):
+        blockers.append("structural research report is missing or outside reports root")
+    else:
+        result["report"] = str(output)
+    if blockers:
+        result.update(status="WARN", reason="; ".join(blockers), blockers=blockers)
     return result
 
 
@@ -1010,6 +1044,7 @@ def main():
         "memory": check_memory(),
         "scheduled_tasks": check_scheduled_tasks(),
         "structural_scheduler": check_structural_scheduler(),
+        "structural_research": check_structural_research(),
         "vibe_sidecar": check_vibe_sidecar(),
         "vibe_shadow": check_vibe_shadow(),
         "profit_funded_scaling": check_profit_funded_scaling(),
