@@ -366,6 +366,17 @@ if ($LASTEXITCODE) { Write-Host '  WARN: MT5-IntradayMR create failed (continuin
 Set-MT5TaskReliability -TaskName 'MT5-IntradayMR' -ExecutionMinutes 5
 Write-Host '  [6b] context-ingest + thesis + apply scheduled before broker midnight; kill-switch enabled; intraday MR every 30min' -ForegroundColor Green
 
+# 6b.1) Weekly structural research is read-only and process-bounded. It writes an
+# immutable report plus cumulative-FDR state but has no order authority.
+$structuralRunner = "$repo\scripts\run-structural-walk-forward.ps1"
+if (Test-Path $structuralRunner) {
+    $structuralBody = "& powershell.exe -NoProfile -NonInteractive -WindowStyle Hidden -ExecutionPolicy Bypass -File '$structuralRunner' *>> 'C:\mt5-paper\analytics\structural-walk-forward-task.log'`r`nexit `$LASTEXITCODE"
+    $structuralAction = New-HiddenTaskAction -Name 'structural-walk-forward' -Body $structuralBody
+    schtasks /create /tn 'MT5-StructuralWalkForward' /tr $structuralAction /sc weekly /d SUN /st 04:15 /it /f | Out-Null
+    if ($LASTEXITCODE) { Write-Host '  WARN: MT5-StructuralWalkForward create failed (continuing)' -ForegroundColor Yellow }
+    Set-MT5TaskReliability -TaskName 'MT5-StructuralWalkForward' -ExecutionMinutes 55
+}
+
 # 6c) Reboot-survival backstop: a SYSTEM task that pings the phone on boot so a restart
 # (Windows Update, host maintenance) is VISIBLE. With auto-logon set up (recommended),
 # trading resumes by itself; without it this is your only signal that a reboot happened.
