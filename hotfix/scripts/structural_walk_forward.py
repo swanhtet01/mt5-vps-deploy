@@ -43,6 +43,12 @@ DEFAULT_SYMBOLS = [
 CRYPTO_SYMBOLS = {"BTCUSD", "ETHUSD"}
 
 
+def research_family_for_symbols(symbols: list[str]) -> tuple[str, bool]:
+    """Only the predeclared full universe may create paper-eligible hypotheses."""
+    canonical = len(symbols) == len(DEFAULT_SYMBOLS) and set(symbols) == set(DEFAULT_SYMBOLS)
+    return ("structural_hourweekday" if canonical else "manual", canonical)
+
+
 def _copy_fresh_h1_rates(
     symbol: str,
     bars_count: int,
@@ -181,6 +187,7 @@ def main() -> None:
         if clock is None or not clock.coherent:
             raise RuntimeError("MT5 feed clock provenance failed")
         symbols = [value.strip() for value in args.symbols.split(",") if value.strip()]
+        fdr_family, paper_eligibility_allowed = research_family_for_symbols(symbols)
         candidates: list[dict] = []
         symbol_reports: dict[str, dict] = {}
         for symbol in symbols:
@@ -218,18 +225,18 @@ def main() -> None:
         ledger = FDRLedger(args.fdr_ledger)
         for candidate, bh_reject, p_value in zip(candidates, bh_mask, pvalues):
             ledger.record(
-                "structural_hourweekday",
+                fdr_family,
                 str(candidate["spec_id"]),
                 p_value,
                 n=int(candidate.get("oos", {}).get("trades") or 0),
                 report_generated_at=datetime.now(tz=timezone.utc).isoformat(),
             )
-        cumulative_discoveries = ledger.bh_rejected("structural_hourweekday", q=0.05)
-        cumulative_denominator = ledger.family_denominator("structural_hourweekday")
+        cumulative_discoveries = ledger.bh_rejected(fdr_family, q=0.05)
+        cumulative_denominator = ledger.family_denominator(fdr_family)
         for candidate, bh_reject, p_value in zip(candidates, bh_mask, pvalues):
             cumulative_discovery = str(candidate["spec_id"]) in cumulative_discoveries
             candidate["multiple_testing"] = {
-                "family": "structural_hourweekday",
+                "family": fdr_family,
                 "family_trials_this_run": denominator,
                 "cumulative_family_trials": cumulative_denominator,
                 "p_raw": p_value,
@@ -239,6 +246,7 @@ def main() -> None:
             }
             candidate["paper_candidate"] = bool(
                 candidate["verdict"] == "PASS"
+                and paper_eligibility_allowed
                 and bh_reject
                 and p_value * denominator < 0.05
                 and cumulative_discovery
@@ -262,9 +270,16 @@ def main() -> None:
                 "block_bootstrap_lower_bound_required": True,
                 "bonferroni_and_bh_fdr_required": True,
                 "cumulative_fdr_ledger_required": True,
+                "canonical_full_scope_required_for_paper": True,
                 "auto_promotion": False,
             },
             "symbols": symbol_reports,
+            "research_scope": {
+                "symbols": symbols,
+                "canonical_full_universe": paper_eligibility_allowed,
+                "fdr_family": fdr_family,
+                "paper_eligibility_allowed": paper_eligibility_allowed,
+            },
             "family_trials": denominator,
             "cumulative_family_trials": cumulative_denominator,
             "paper_candidates": survivors,
