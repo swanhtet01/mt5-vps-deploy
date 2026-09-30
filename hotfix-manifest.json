@@ -139,7 +139,7 @@
                   {
                       "source":  "hotfix/src/mt5_agent/fdr_ledger.py",
                       "destination":  "src/mt5_agent/fdr_ledger.py",
-                      "sha256":  "340e27e5be29646ad0e2cdef1f41127b746f6064ff7763353def60349f214219"
+                      "sha256":  "528ad2d26ed7a8d5ee4d8f84f7ce2da183a7fe62efeef83e3ac6f07369f91f27"
                   },
                   {
                       "source":  "hotfix/src/mt5_agent/structural_validation.py",
