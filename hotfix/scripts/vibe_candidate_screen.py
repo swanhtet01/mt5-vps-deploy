@@ -14,6 +14,7 @@ import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from statistics import NormalDist
 from typing import Any, Mapping
 
 import numpy as np
@@ -52,6 +53,8 @@ MINIMUM_PROFITABLE_FOLD_RATIO = 0.75
 BOOTSTRAP_SAMPLES = 3000
 BOOTSTRAP_BLOCK_TRADES = 4
 FAMILY_ALPHA = 0.05
+MINIMUM_DEFLATED_SHARPE_PROBABILITY = 0.95
+EULER_MASCHERONI = 0.5772156649015329
 
 def _finite(value: Any, digits: int = 6) -> float | None:
     try:
@@ -195,7 +198,15 @@ def _metrics(values: list[float]) -> dict[str, Any]:
             "profit_factor": None,
             "max_cumulative_drawdown_usd": 0.0,
             "one_sided_positive_p_normal_approx": 1.0,
+            "sharpe_per_trade": None,
+            "skewness": None,
+            "kurtosis": None,
         }
+    series = pd.Series(values, dtype="float64")
+    sample_std = float(series.std(ddof=1)) if len(series) > 1 else math.nan
+    sharpe = float(series.mean() / sample_std) if sample_std > 0 else None
+    skewness = float(series.skew()) if len(series) >= 3 else None
+    kurtosis = float(series.kurt()) + 3.0 if len(series) >= 4 else None
     cumulative = np.cumsum(values)
     peaks = np.maximum.accumulate(np.concatenate(([0.0], cumulative)))
     drawdowns = peaks[1:] - cumulative
@@ -208,7 +219,55 @@ def _metrics(values: list[float]) -> dict[str, Any]:
         "profit_factor": None if math.isinf(profit_factor) else _finite(profit_factor, 6),
         "max_cumulative_drawdown_usd": _finite(drawdowns.max(), 6),
         "one_sided_positive_p_normal_approx": _finite(_one_sided_positive_p(values), 12),
+        "sharpe_per_trade": _finite(sharpe, 12),
+        "skewness": _finite(skewness, 12),
+        "kurtosis": _finite(kurtosis, 12),
     }
+
+
+def expected_maximum_sharpe(sharpes: list[float], *, trials: int) -> float | None:
+    """Expected best Sharpe from an equally sized no-skill search family."""
+    if trials <= 1:
+        return 0.0
+    finite = [float(value) for value in sharpes if math.isfinite(float(value))]
+    if len(finite) < 2:
+        return None
+    variance = float(np.var(finite, ddof=1))
+    if variance <= 0:
+        return 0.0
+    normal = NormalDist()
+    first = normal.inv_cdf(1.0 - 1.0 / trials)
+    second = normal.inv_cdf(1.0 - 1.0 / (trials * math.e))
+    return math.sqrt(variance) * (
+        (1.0 - EULER_MASCHERONI) * first + EULER_MASCHERONI * second
+    )
+
+
+def deflated_sharpe_probability(
+    metrics: Mapping[str, Any], *, benchmark: float | None
+) -> float | None:
+    """Probability that per-trade Sharpe exceeds the search-adjusted benchmark."""
+    if benchmark is None:
+        return None
+    observations = int(metrics.get("trades") or 0)
+    sharpe = _finite(metrics.get("sharpe_per_trade"), 15)
+    skewness = _finite(metrics.get("skewness"), 15)
+    kurtosis = _finite(metrics.get("kurtosis"), 15)
+    if observations < 3 or sharpe is None or skewness is None or kurtosis is None:
+        return None
+    denominator_squared = (
+        1.0
+        - skewness * sharpe
+        + ((kurtosis - 1.0) / 4.0) * sharpe * sharpe
+    )
+    if denominator_squared <= 0 or not math.isfinite(denominator_squared):
+        return None
+    statistic = (
+        (sharpe - benchmark)
+        * math.sqrt(observations - 1)
+        / math.sqrt(denominator_squared)
+    )
+    return NormalDist().cdf(statistic)
 
 
 def grade_direction(
@@ -359,25 +418,49 @@ def screen_candidates(
     pvalues = [float(result["oos"]["one_sided_positive_p_normal_approx"]) for result in results]
     bh_mask = benjamini_hochberg(pvalues, q=FAMILY_ALPHA)
     family_trials = len(results)
+    sharpe_values = [
+        float(result["oos"]["sharpe_per_trade"])
+        for result in results
+        if result["oos"].get("sharpe_per_trade") is not None
+    ]
+    sharpe_benchmark = expected_maximum_sharpe(sharpe_values, trials=family_trials)
     for result, p_value, bh_reject in zip(results, pvalues, bh_mask):
         p_bonferroni = min(1.0, p_value * max(family_trials, 1))
+        dsr_probability = deflated_sharpe_probability(
+            result["oos"], benchmark=sharpe_benchmark
+        )
         result["multiple_testing"] = {
             "family": "vibe_deterministic_fixed_rules",
             "family_trials": family_trials,
             "p_raw": _finite(p_value, 12),
             "p_bonferroni": _finite(p_bonferroni, 12),
             "bh_fdr_q_0_05": bool(bh_reject),
+            "deflated_sharpe_benchmark_per_trade": _finite(sharpe_benchmark, 12),
+            "deflated_sharpe_probability": _finite(dsr_probability, 12),
+            "minimum_deflated_sharpe_probability": MINIMUM_DEFLATED_SHARPE_PROBABILITY,
         }
+        survived_pvalue_correction = bool(p_bonferroni < FAMILY_ALPHA and bh_reject)
+        survived_sharpe_deflation = bool(
+            dsr_probability is not None
+            and dsr_probability >= MINIMUM_DEFLATED_SHARPE_PROBABILITY
+        )
         passed = bool(
             result["historical_screen_verdict"] == "PASS_BEFORE_MULTIPLE_TESTING"
-            and p_bonferroni < FAMILY_ALPHA
-            and bh_reject
+            and survived_pvalue_correction
+            and survived_sharpe_deflation
         )
         if passed:
             result["historical_screen_verdict"] = "PASS_NOT_REJECTED"
         elif result["historical_screen_verdict"] == "PASS_BEFORE_MULTIPLE_TESTING":
             result["historical_screen_verdict"] = "FAIL_MULTIPLE_TESTING"
-            result["reasons"].append("did not survive both Bonferroni and BH-FDR correction")
+            if not survived_pvalue_correction:
+                result["reasons"].append(
+                    "did not survive both Bonferroni and BH-FDR correction"
+                )
+            if not survived_sharpe_deflation:
+                result["reasons"].append(
+                    "deflated Sharpe probability did not reach 95%"
+                )
         result["historical_screen_pass"] = passed
 
     return {
@@ -404,6 +487,8 @@ def screen_candidates(
             "minimum_profitable_fold_ratio": MINIMUM_PROFITABLE_FOLD_RATIO,
             "bootstrap_samples": BOOTSTRAP_SAMPLES,
             "bonferroni_and_bh_fdr_required": True,
+            "deflated_sharpe_required": True,
+            "minimum_deflated_sharpe_probability": MINIMUM_DEFLATED_SHARPE_PROBABILITY,
         },
         "family_trials": family_trials,
         "historical_screen_pass_count": sum(result["historical_screen_pass"] for result in results),
@@ -414,6 +499,7 @@ def screen_candidates(
             "Candidate selection used the latest portion of this same sample, so a historical PASS is not independent evidence.",
             "The current terminal spread and tick-value snapshot is stressed but is not a historical cost series.",
             "Only post-discovery paper-forward outcomes can provide independent evidence; manual live authorization remains separate.",
+            "Deflated Sharpe uses per-trade OOS returns and the raw family trial count; it is an additional rejection test, not proof of independence.",
         ],
     }
 
@@ -426,8 +512,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         "",
         "This screen can reject hypotheses. It cannot validate future profit, create a paper candidate, or authorize a live trade.",
         "",
-        "| Candidate | Instrument | Rule | Direction | Verdict | OOS trades | Net USD | PF | LCB/trade | Bonferroni p |",
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: |",
+        "| Candidate | Instrument | Rule | Direction | Verdict | OOS trades | Net USD | PF | LCB/trade | Bonferroni p | DSR |",
+        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for result in report["results"]:
         oos = result["oos"]
@@ -435,7 +521,8 @@ def render_markdown(report: Mapping[str, Any]) -> str:
         lines.append(
             f"| {result['screen_id']} | {result['broker_symbol']} | {result['family']} | {result['direction']} | "
             f"{result['historical_screen_verdict']} | {oos['trades']} | {oos['net_usd']} | "
-            f"{oos['profit_factor']} | {oos.get('bootstrap_mean_lcb_95_usd')} | {multiple['p_bonferroni']} |"
+            f"{oos['profit_factor']} | {oos.get('bootstrap_mean_lcb_95_usd')} | {multiple['p_bonferroni']} | "
+            f"{multiple['deflated_sharpe_probability']} |"
         )
     lines.extend(
         [
