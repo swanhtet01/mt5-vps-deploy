@@ -512,19 +512,33 @@ if ($ok) {
 }
 }
 
-# 8) confirm to phone - only on interactive runs (auto-deploy stays silent; no spam)
-if (-not $env:MT5_AUTODEPLOY) {
-    $topic = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
-    if ($topic) {
-        $env:NTFY_TOPIC = $topic
-        & $py "$repo\scripts\notify.py" 'Update done - auto-deploy + scanner + LLM thesis verified' 2>$null
-    }
-}
-
 # Completion marker, written only if execution actually reached the end of this file.
 # auto_deploy.ps1 refuses to record a deploy as successful unless this names the commit it
 # just deployed -- so any early exit, silent or not, is retried instead of being banked.
 Set-Content "$deploy\last_update_complete.txt" $deployRef -NoNewline
+
+# 8) Send one best-effort receipt for each completed deploy. This runs after the marker so a
+# notification outage cannot turn an otherwise valid update into a failed deployment. Auto-
+# deploy receipts name the immutable commit and explicitly confirm that authorization was not
+# changed; periodic no-op polls remain silent.
+$topic = [Environment]::GetEnvironmentVariable('NTFY_TOPIC','User')
+if ($topic) {
+    $env:NTFY_TOPIC = $topic
+    $message = if ($env:MT5_AUTODEPLOY) {
+        "VPS deploy complete: commit $($deployRef.Substring(0,8)). Research/risk update applied; live authorization unchanged."
+    } else {
+        'Update done - auto-deploy + scanner + LLM thesis verified'
+    }
+    $previousEAP = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $py "$repo\scripts\notify.py" $message *> $null
+    } catch {
+        Write-Host '  WARN: deploy completed but phone receipt failed' -ForegroundColor Yellow
+    } finally {
+        $ErrorActionPreference = $previousEAP
+    }
+}
 
 Write-Host ''
 Write-Host '==== UPDATE COMPLETE ====' -ForegroundColor Green
